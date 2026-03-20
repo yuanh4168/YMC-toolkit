@@ -5,12 +5,12 @@
 #include "ServerPinger.h"
 
 #define IDC_SERVER_STATUS 1001
-#define IDC_NEWS_CONTENT  1002  // 不再使用，保留定义避免冲突
 #define IDC_LAUNCH_BUTTON 1003
 #define IDC_SHORTCUT1     1004
 #define IDC_SHORTCUT2     1005
 #define IDC_SHORTCUT3     1006
 #define IDC_SHORTCUT4     1007
+#define IDC_EXIT_BUTTON   1008
 
 class PopupWindow {
 public:
@@ -29,10 +29,14 @@ private:
     HWND m_hShortcutButtons[4];
     Config m_config;
     HBRUSH m_hBkBrush;
-    HFONT m_hFont;
+    HWND m_hHoverButton;
+    HFONT m_hNormalFont;
+    HFONT m_hBoldFont;
+    bool m_bTracking;   // 是否正在跟踪鼠标离开
 
-    // UTF-8 转宽字符串的静态辅助函数
     static std::wstring UTF8ToWide(const std::string& utf8);
-
     static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    void OnMouseMove(WPARAM wParam, LPARAM lParam);
+    void SetHoverButton(HWND hBtn);
+    bool IsButton(HWND hWnd);
 };

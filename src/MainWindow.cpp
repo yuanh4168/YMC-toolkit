@@ -1,10 +1,12 @@
 #include "MainWindow.h"
 #include "GameLauncher.h"
-// #include "NewsFetcher.h"  // 不再需要
+#include <chrono>
 #include <thread>
 
-MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false) {}
-MainWindow::~MainWindow() {}
+MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false), m_pingActive(false) {}
+MainWindow::~MainWindow() {
+    StopPingThread();
+}
 
 bool MainWindow::Create(HINSTANCE hInst) {
     m_hInst = hInst;
@@ -36,8 +38,7 @@ bool MainWindow::Create(HINSTANCE hInst) {
 
     if (!m_popup.Create(m_hWnd, hInst, m_config)) return false;
 
-    SetTimer(m_hWnd, 1, 200, NULL);
-    StartServerPingThread();
+    SetTimer(m_hWnd, IDT_MOUSE_CHECK, 200, NULL);
     return true;
 }
 
@@ -55,16 +56,30 @@ void MainWindow::CheckMouseEdge() {
     if (pt.y < m_config.edgeThreshold && !m_popupVisible) {
         m_popup.Show();
         m_popupVisible = true;
-        // 不再启动新闻获取
+        StartPingThread();
     } else if (pt.y > m_config.popupHeight + 20 && m_popupVisible) {
         m_popup.Hide();
         m_popupVisible = false;
+        StopPingThread();
     }
 }
 
-void MainWindow::StartServerPingThread() {
-    std::thread([this]() {
-        while (true) {
+void MainWindow::StartPingThread() {
+    if (m_pingThread.joinable()) return;
+    m_pingActive = true;
+    m_pingThread = std::thread(&MainWindow::PingWorker, this);
+}
+
+void MainWindow::StopPingThread() {
+    m_pingActive = false;
+    if (m_pingThread.joinable()) {
+        m_pingThread.join();
+    }
+}
+
+void MainWindow::PingWorker() {
+    while (m_pingActive) {
+        if (m_popupVisible) {
             ServerStatus status;
             if (PingServer(m_config.serverHost, m_config.serverPort, status)) {
                 PostMessage(m_hWnd, WM_UPDATE_SERVER_STATUS, 0, (LPARAM)new ServerStatus(status));
@@ -72,9 +87,12 @@ void MainWindow::StartServerPingThread() {
                 ServerStatus offline;
                 PostMessage(m_hWnd, WM_UPDATE_SERVER_STATUS, 0, (LPARAM)new ServerStatus(offline));
             }
-            Sleep(3000);
         }
-    }).detach();
+        // 休眠 10 秒，可分小段以便快速响应停止信号
+        for (int i = 0; i < 100 && m_pingActive; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
 }
 
 LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -89,11 +107,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
     if (pThis) {
         switch (msg) {
             case WM_TIMER:
-                pThis->CheckMouseEdge();
+                if (wParam == IDT_MOUSE_CHECK) {
+                    pThis->CheckMouseEdge();
+                }
                 break;
             case WM_COMMAND:
                 if (LOWORD(wParam) == IDC_LAUNCH_BUTTON) {
-                    LaunchGame(pThis->m_config);
+                    LaunchGame();
                 }
                 break;
             case WM_UPDATE_SERVER_STATUS:
@@ -103,7 +123,6 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 delete pStatus;
                 break;
             }
-            // 不再处理 WM_UPDATE_NEWS
             case WM_DESTROY:
                 PostQuitMessage(0);
                 break;

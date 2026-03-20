@@ -1,4 +1,3 @@
 #pragma once
-#include "Config.h"
 
-bool LaunchGame(const Config& cfg);
+bool LaunchGame();   // 不再需要 Config 参数

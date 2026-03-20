@@ -1,6 +1,8 @@
 #include "Config.h"
 #include <fstream>
 #include <iostream>
+#include <vector>   // 确保 vector 可用（虽然 Config.h 已包含，但加上也无妨）
+#include <string>   // 确保 string 可用
 
 bool Config::Load(const std::string& filePath) {
     std::ifstream f(filePath);
@@ -9,18 +11,14 @@ bool Config::Load(const std::string& filePath) {
         nlohmann::json j;
         f >> j;
 
-        // Game
         gameCommand = j["game"]["command"];
         gameArgs = j["game"]["args"].get<std::vector<std::string>>();
 
-        // Server
         serverHost = j["server"]["host"];
         serverPort = j["server"]["port"];
 
-        // News
         newsURL = j["news"]["url"];
 
-        // Shortcuts
         if (j.contains("shortcuts") && j["shortcuts"].is_array()) {
             for (const auto& item : j["shortcuts"]) {
                 Shortcut sc;
@@ -30,7 +28,6 @@ bool Config::Load(const std::string& filePath) {
             }
         }
 
-        // UI
         edgeThreshold = j["ui"]["edge_threshold"];
         popupWidth = j["ui"]["popup_width"];
         popupHeight = j["ui"]["popup_height"];

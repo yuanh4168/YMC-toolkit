@@ -1,8 +1,17 @@
 #include "PopupWindow.h"
-#include <shellapi.h>   // 用于 ShellExecuteA
-#include <cstdio>       // 用于 swprintf
+#include <shellapi.h>
+#include <cstdio>
 
-// 静态辅助函数：UTF-8 转宽字符串
+// 辅助函数：设置窗口圆角
+static void SetRoundedCorners(HWND hWnd, int radius) {
+    RECT rc;
+    GetWindowRect(hWnd, &rc);
+    int width = rc.right - rc.left;
+    int height = rc.bottom - rc.top;
+    HRGN hRgn = CreateRoundRectRgn(0, 0, width, height, radius, radius);
+    SetWindowRgn(hWnd, hRgn, TRUE);
+}
+
 std::wstring PopupWindow::UTF8ToWide(const std::string& utf8) {
     if (utf8.empty()) return std::wstring();
     int len = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, NULL, 0);
@@ -12,53 +21,60 @@ std::wstring PopupWindow::UTF8ToWide(const std::string& utf8) {
 }
 
 PopupWindow::PopupWindow() 
-    : m_hWnd(NULL), m_hServerStatic(NULL), m_hBkBrush(NULL), m_hFont(NULL) {
+    : m_hWnd(NULL), m_hServerStatic(NULL), m_hBkBrush(NULL), 
+      m_hHoverButton(NULL), m_hNormalFont(NULL), m_hBoldFont(NULL),
+      m_bTracking(false) {
     for (int i = 0; i < 4; ++i) m_hShortcutButtons[i] = NULL;
 }
 
 PopupWindow::~PopupWindow() {
     if (m_hWnd) DestroyWindow(m_hWnd);
     if (m_hBkBrush) DeleteObject(m_hBkBrush);
-    if (m_hFont) DeleteObject(m_hFont);
+    if (m_hNormalFont) DeleteObject(m_hNormalFont);
+    if (m_hBoldFont) DeleteObject(m_hBoldFont);
 }
 
 bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     m_config = cfg;
 
-    // 注册窗口类
     WNDCLASSEXW wc = {0};
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = NULL;          // 背景擦除由我们自己处理
+    wc.hbrBackground = NULL;
     wc.lpszClassName = L"PopupClass";
     RegisterClassExW(&wc);
 
-    // 创建窗口（带扩展样式）
     m_hWnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
         L"PopupClass", NULL,
         WS_POPUP | WS_BORDER,
         0, 0, cfg.popupWidth, cfg.popupHeight,
         hParent, NULL, hInst, this);
-
     if (!m_hWnd) return false;
 
-    // 创建深色背景画刷和字体
     m_hBkBrush = CreateSolidBrush(RGB(32, 32, 32));
-    m_hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+
+    // 创建字体
+    LOGFONTW lf = {0};
+    lf.lfHeight = -14;
+    lf.lfWeight = FW_NORMAL;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    wcscpy_s(lf.lfFaceName, L"MS Shell Dlg");
+    m_hNormalFont = CreateFontIndirectW(&lf);
+    lf.lfWeight = FW_BOLD;
+    m_hBoldFont = CreateFontIndirectW(&lf);
 
     // 创建服务器状态标签
     CreateWindowW(L"STATIC", L"服务器状态", WS_CHILD | WS_VISIBLE,
         10, 10, 380, 20, m_hWnd, NULL, hInst, NULL);
     m_hServerStatic = CreateWindowW(L"STATIC", L"未知", WS_CHILD | WS_VISIBLE,
         10, 30, 380, 60, m_hWnd, (HMENU)IDC_SERVER_STATUS, hInst, NULL);
-    SendMessageW(m_hServerStatic, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+    SendMessageW(m_hServerStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
 
-    // 创建四个快捷按钮（自绘样式）
+    // 创建四个快捷按钮
     int btnWidth = (cfg.popupWidth - 50) / 4;
     for (int i = 0; i < 4 && i < (int)cfg.shortcuts.size(); ++i) {
         m_hShortcutButtons[i] = CreateWindowW(
@@ -67,12 +83,22 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
             10 + i * (btnWidth + 10), 100, btnWidth, 30,
             m_hWnd, (HMENU)(IDC_SHORTCUT1 + i), hInst, NULL);
-        SendMessageW(m_hShortcutButtons[i], WM_SETFONT, (WPARAM)m_hFont, TRUE);
+        SendMessageW(m_hShortcutButtons[i], WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
     }
 
     // 创建启动游戏按钮
-    CreateWindowW(L"BUTTON", L"启动游戏", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+    HWND hLaunch = CreateWindowW(L"BUTTON", L"启动游戏", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         150, 150, 100, 30, m_hWnd, (HMENU)IDC_LAUNCH_BUTTON, hInst, NULL);
+    SendMessageW(hLaunch, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+
+    // 创建退出按钮
+    HWND hExit = CreateWindowW(L"BUTTON", L"退出", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+        cfg.popupWidth - 80, cfg.popupHeight - 40, 70, 30,
+        m_hWnd, (HMENU)IDC_EXIT_BUTTON, hInst, NULL);
+    SendMessageW(hExit, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+
+    // 设置窗口圆角
+    SetRoundedCorners(m_hWnd, 20);
 
     return true;
 }
@@ -83,6 +109,8 @@ void PopupWindow::Show() {
         (screenWidth - m_config.popupWidth) / 2, 0,
         m_config.popupWidth, m_config.popupHeight,
         SWP_SHOWWINDOW);
+    m_hHoverButton = NULL;
+    m_bTracking = false;
 }
 
 void PopupWindow::Hide() {
@@ -104,6 +132,38 @@ void PopupWindow::UpdateServerStatus(const ServerStatus& status) {
         text = L"离线";
     }
     SetWindowTextW(m_hServerStatic, text.c_str());
+}
+
+bool PopupWindow::IsButton(HWND hWnd) {
+    for (int i = 0; i < 4; ++i) {
+        if (hWnd == m_hShortcutButtons[i]) return true;
+    }
+    HWND hLaunch = GetDlgItem(m_hWnd, IDC_LAUNCH_BUTTON);
+    HWND hExit = GetDlgItem(m_hWnd, IDC_EXIT_BUTTON);
+    return (hWnd == hLaunch || hWnd == hExit);
+}
+
+void PopupWindow::OnMouseMove(WPARAM wParam, LPARAM lParam) {
+    POINT pt = { LOWORD(lParam), HIWORD(lParam) };
+    HWND hChild = ChildWindowFromPoint(m_hWnd, pt);
+    if (IsButton(hChild)) {
+        SetHoverButton(hChild);
+        if (!m_bTracking) {
+            TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT), TME_LEAVE, m_hWnd, 0 };
+            TrackMouseEvent(&tme);
+            m_bTracking = true;
+        }
+    } else {
+        SetHoverButton(NULL);
+    }
+}
+
+void PopupWindow::SetHoverButton(HWND hBtn) {
+    if (m_hHoverButton == hBtn) return;
+    HWND oldHover = m_hHoverButton;
+    m_hHoverButton = hBtn;
+    if (oldHover) InvalidateRect(oldHover, NULL, TRUE);
+    if (m_hHoverButton) InvalidateRect(m_hHoverButton, NULL, TRUE);
 }
 
 LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -131,39 +191,44 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             SetBkColor(hdcStatic, RGB(32, 32, 32));
             return (LRESULT)pThis->m_hBkBrush;
         }
+        case WM_MOUSEMOVE:
+            pThis->OnMouseMove(wParam, lParam);
+            break;
+        case WM_MOUSELEAVE:
+            pThis->SetHoverButton(NULL);
+            pThis->m_bTracking = false;
+            break;
         case WM_DRAWITEM: {
             LPDRAWITEMSTRUCT lpDIS = (LPDRAWITEMSTRUCT)lParam;
             if (lpDIS->CtlType == ODT_BUTTON) {
                 wchar_t text[256];
                 GetWindowTextW(lpDIS->hwndItem, text, 256);
-
                 HDC hdc = lpDIS->hDC;
                 SetBkMode(hdc, TRANSPARENT);
 
-                // 根据按钮状态选择背景色
-                COLORREF bgColor;
-                if (lpDIS->itemState & ODS_SELECTED)
-                    bgColor = RGB(60, 60, 60);
-                else if (lpDIS->itemState & ODS_DISABLED)
-                    bgColor = RGB(20, 20, 20);
-                else
-                    bgColor = RGB(45, 45, 45);
+                bool bHover = (lpDIS->hwndItem == pThis->m_hHoverButton);
+                bool bPressed = (lpDIS->itemState & ODS_SELECTED);
 
+                COLORREF bgColor = bPressed ? RGB(60, 60, 60) : RGB(45, 45, 45);
                 HBRUSH bgBrush = CreateSolidBrush(bgColor);
                 FillRect(hdc, &lpDIS->rcItem, bgBrush);
                 DeleteObject(bgBrush);
 
-                // 绘制边框（浅灰色）
-                HPEN pen = CreatePen(PS_SOLID, 1, RGB(80, 80, 80));
+                COLORREF borderColor = bHover ? RGB(200, 200, 200) : RGB(80, 80, 80);
+                HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
                 SelectObject(hdc, pen);
                 SelectObject(hdc, GetStockObject(NULL_BRUSH));
-                Rectangle(hdc, lpDIS->rcItem.left, lpDIS->rcItem.top,
-                    lpDIS->rcItem.right, lpDIS->rcItem.bottom);
+                // 绘制圆角矩形
+                RoundRect(hdc, lpDIS->rcItem.left, lpDIS->rcItem.top,
+                          lpDIS->rcItem.right, lpDIS->rcItem.bottom, 10, 10);
                 DeleteObject(pen);
 
-                // 绘制文本
-                SetTextColor(hdc, RGB(220, 220, 220));
+                COLORREF textColor = bHover ? RGB(255, 200, 0) : RGB(220, 220, 220);
+                SetTextColor(hdc, textColor);
+
+                HFONT hOldFont = (HFONT)SelectObject(hdc, bHover ? pThis->m_hBoldFont : pThis->m_hNormalFont);
                 DrawTextW(hdc, text, -1, &lpDIS->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                SelectObject(hdc, hOldFont);
                 return TRUE;
             }
             break;
@@ -178,8 +243,9 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 }
                 break;
             } else if (id == IDC_LAUNCH_BUTTON) {
-                // 发送启动命令给父窗口
                 SendMessage(GetParent(hWnd), WM_COMMAND, IDC_LAUNCH_BUTTON, 0);
+            } else if (id == IDC_EXIT_BUTTON) {
+                PostQuitMessage(0);
             }
             break;
         }
