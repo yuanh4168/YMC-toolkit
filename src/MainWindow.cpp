@@ -1,12 +1,9 @@
 #include "MainWindow.h"
 #include "GameLauncher.h"
-#include <chrono>
 #include <thread>
 
-MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false), m_pingActive(false) {}
-MainWindow::~MainWindow() {
-    StopPingThread();
-}
+MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false) {}
+MainWindow::~MainWindow() {}
 
 bool MainWindow::Create(HINSTANCE hInst) {
     m_hInst = hInst;
@@ -38,6 +35,16 @@ bool MainWindow::Create(HINSTANCE hInst) {
 
     if (!m_popup.Create(m_hWnd, hInst, m_config)) return false;
 
+    if (m_popup.GetLastX() == 0) {
+        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+        int defaultX = (screenWidth - m_config.popupWidth) / 2;
+        m_popup.SetLastX(defaultX);
+    }
+
+    // 显示初始服务器地址和“检测中...”
+    m_popup.SetCurrentServerInfo();
+    StartServerPing();
+
     SetTimer(m_hWnd, IDT_MOUSE_CHECK, 200, NULL);
     return true;
 }
@@ -53,46 +60,58 @@ void MainWindow::RunMessageLoop() {
 void MainWindow::CheckMouseEdge() {
     POINT pt;
     GetCursorPos(&pt);
+    int popupX = m_popup.GetLastX();
+    int popupWidth = m_config.popupWidth;
     if (pt.y < m_config.edgeThreshold && !m_popupVisible) {
-        m_popup.Show();
-        m_popupVisible = true;
-        StartPingThread();
+        if (pt.x >= popupX && pt.x <= popupX + popupWidth) {
+            m_popup.Show();
+            m_popupVisible = true;
+            StartServerPing();
+            SetTimer(m_hWnd, IDT_SERVER_PING, 10000, NULL);
+        }
     } else if (pt.y > m_config.popupHeight + 20 && m_popupVisible) {
         m_popup.Hide();
         m_popupVisible = false;
-        StopPingThread();
+        KillTimer(m_hWnd, IDT_SERVER_PING);
     }
 }
 
-void MainWindow::StartPingThread() {
-    if (m_pingThread.joinable()) return;
-    m_pingActive = true;
-    m_pingThread = std::thread(&MainWindow::PingWorker, this);
-}
-
-void MainWindow::StopPingThread() {
-    m_pingActive = false;
-    if (m_pingThread.joinable()) {
-        m_pingThread.join();
-    }
-}
-
-void MainWindow::PingWorker() {
-    while (m_pingActive) {
-        if (m_popupVisible) {
-            ServerStatus status;
-            if (PingServer(m_config.serverHost, m_config.serverPort, status)) {
-                PostMessage(m_hWnd, WM_UPDATE_SERVER_STATUS, 0, (LPARAM)new ServerStatus(status));
-            } else {
-                ServerStatus offline;
-                PostMessage(m_hWnd, WM_UPDATE_SERVER_STATUS, 0, (LPARAM)new ServerStatus(offline));
-            }
+void MainWindow::StartServerPing() {
+    std::thread([this]() {
+        if (m_config.servers.empty()) return;
+        int idx = m_config.currentServer;
+        ServerStatus status;
+        if (PingServer(m_config.servers[idx].host, m_config.servers[idx].port, status)) {
+            PostMessage(m_hWnd, WM_UPDATE_SERVER_STATUS, 0, (LPARAM)new ServerStatus(status));
+        } else {
+            ServerStatus offline;
+            PostMessage(m_hWnd, WM_UPDATE_SERVER_STATUS, 0, (LPARAM)new ServerStatus(offline));
         }
-        // 休眠 10 秒，可分小段以便快速响应停止信号
-        for (int i = 0; i < 100 && m_pingActive; ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+    }).detach();
+}
+
+void MainWindow::OnPingTimer() {
+    if (m_popupVisible) {
+        StartServerPing();
     }
+}
+
+void MainWindow::SwitchToNextServer() {
+    if (m_config.servers.empty()) return;
+    m_config.currentServer = (m_config.currentServer + 1) % m_config.servers.size();
+    UpdateConfigAndSave();
+    m_popup.SyncCurrentServerIndex(m_config.currentServer);   // 同步弹窗的索引
+    StartServerPing();                // 开始异步查询
+}
+
+void MainWindow::UpdateConfigAndSave() {
+    wchar_t modulePath[MAX_PATH];
+    GetModuleFileNameW(NULL, modulePath, MAX_PATH);
+    std::wstring ws(modulePath);
+    std::string exePath(ws.begin(), ws.end());
+    size_t pos = exePath.find_last_of("\\");
+    std::string configPath = exePath.substr(0, pos + 1) + "config.json";
+    m_config.Save(configPath);
 }
 
 LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -109,11 +128,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             case WM_TIMER:
                 if (wParam == IDT_MOUSE_CHECK) {
                     pThis->CheckMouseEdge();
+                } else if (wParam == IDT_SERVER_PING) {
+                    pThis->OnPingTimer();
                 }
                 break;
             case WM_COMMAND:
                 if (LOWORD(wParam) == IDC_LAUNCH_BUTTON) {
                     LaunchGame();
+                } else if (LOWORD(wParam) == IDC_SWITCH_BUTTON) {
+                    pThis->SwitchToNextServer();
                 }
                 break;
             case WM_UPDATE_SERVER_STATUS:

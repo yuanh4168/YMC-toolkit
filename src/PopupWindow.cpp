@@ -1,16 +1,7 @@
 #include "PopupWindow.h"
 #include <shellapi.h>
 #include <cstdio>
-
-// 辅助函数：设置窗口圆角
-static void SetRoundedCorners(HWND hWnd, int radius) {
-    RECT rc;
-    GetWindowRect(hWnd, &rc);
-    int width = rc.right - rc.left;
-    int height = rc.bottom - rc.top;
-    HRGN hRgn = CreateRoundRectRgn(0, 0, width, height, radius, radius);
-    SetWindowRgn(hWnd, hRgn, TRUE);
-}
+#include <commctrl.h>
 
 std::wstring PopupWindow::UTF8ToWide(const std::string& utf8) {
     if (utf8.empty()) return std::wstring();
@@ -21,9 +12,9 @@ std::wstring PopupWindow::UTF8ToWide(const std::string& utf8) {
 }
 
 PopupWindow::PopupWindow() 
-    : m_hWnd(NULL), m_hServerStatic(NULL), m_hBkBrush(NULL), 
+    : m_hWnd(NULL), m_hServerAddressStatic(NULL), m_hServerStatusStatic(NULL), m_hBkBrush(NULL), 
       m_hHoverButton(NULL), m_hNormalFont(NULL), m_hBoldFont(NULL),
-      m_bTracking(false) {
+      m_hExitButton(NULL), m_hSwitchButton(NULL), m_lastX(0), m_autoHideScheduled(false) {
     for (int i = 0; i < 4; ++i) m_hShortcutButtons[i] = NULL;
 }
 
@@ -50,75 +41,160 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     m_hWnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
         L"PopupClass", NULL,
-        WS_POPUP | WS_BORDER,
+        WS_POPUP,
         0, 0, cfg.popupWidth, cfg.popupHeight,
         hParent, NULL, hInst, this);
     if (!m_hWnd) return false;
 
     m_hBkBrush = CreateSolidBrush(RGB(32, 32, 32));
 
-    // 创建字体
     LOGFONTW lf = {0};
     lf.lfHeight = -14;
     lf.lfWeight = FW_NORMAL;
     lf.lfCharSet = DEFAULT_CHARSET;
     wcscpy_s(lf.lfFaceName, L"MS Shell Dlg");
     m_hNormalFont = CreateFontIndirectW(&lf);
+
     lf.lfWeight = FW_BOLD;
     m_hBoldFont = CreateFontIndirectW(&lf);
 
-    // 创建服务器状态标签
+    // 服务器状态标题
     CreateWindowW(L"STATIC", L"服务器状态", WS_CHILD | WS_VISIBLE,
         10, 10, 380, 20, m_hWnd, NULL, hInst, NULL);
-    m_hServerStatic = CreateWindowW(L"STATIC", L"未知", WS_CHILD | WS_VISIBLE,
-        10, 30, 380, 60, m_hWnd, (HMENU)IDC_SERVER_STATUS, hInst, NULL);
-    SendMessageW(m_hServerStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
 
-    // 创建四个快捷按钮
+    // 新增：显示服务器地址的静态文本（独立）
+    m_hServerAddressStatic = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+        10, 30, 380, 20, m_hWnd, NULL, hInst, NULL);
+    SendMessageW(m_hServerAddressStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+
+    // 服务器状态内容（显示在线/离线详情）
+    m_hServerStatusStatic = CreateWindowW(L"STATIC", L"未知", WS_CHILD | WS_VISIBLE,
+        10, 50, 380, 80, m_hWnd, (HMENU)IDC_SERVER_STATUS, hInst, NULL);
+    SendMessageW(m_hServerStatusStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+
+    // 快捷按钮（位置下移，因为增加了地址行）
     int btnWidth = (cfg.popupWidth - 50) / 4;
     for (int i = 0; i < 4 && i < (int)cfg.shortcuts.size(); ++i) {
         m_hShortcutButtons[i] = CreateWindowW(
             L"BUTTON",
             UTF8ToWide(cfg.shortcuts[i].name).c_str(),
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            10 + i * (btnWidth + 10), 100, btnWidth, 30,
+            10 + i * (btnWidth + 10), 140, btnWidth, 30,
             m_hWnd, (HMENU)(IDC_SHORTCUT1 + i), hInst, NULL);
         SendMessageW(m_hShortcutButtons[i], WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
     }
 
-    // 创建启动游戏按钮
+    // 启动游戏按钮
     HWND hLaunch = CreateWindowW(L"BUTTON", L"启动游戏", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-        150, 150, 100, 30, m_hWnd, (HMENU)IDC_LAUNCH_BUTTON, hInst, NULL);
+        150, 190, 100, 30, m_hWnd, (HMENU)IDC_LAUNCH_BUTTON, hInst, NULL);
     SendMessageW(hLaunch, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
 
-    // 创建退出按钮
-    HWND hExit = CreateWindowW(L"BUTTON", L"退出", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-        cfg.popupWidth - 80, cfg.popupHeight - 40, 70, 30,
-        m_hWnd, (HMENU)IDC_EXIT_BUTTON, hInst, NULL);
-    SendMessageW(hExit, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+    // 切换服务器按钮
+    m_hSwitchButton = CreateWindowW(L"BUTTON", L"切换服务器", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+        260, 190, 100, 30, m_hWnd, (HMENU)IDC_SWITCH_BUTTON, hInst, NULL);
+    SendMessageW(m_hSwitchButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
 
-    // 设置窗口圆角
-    SetRoundedCorners(m_hWnd, 20);
+    // X按钮
+    m_hExitButton = CreateWindowW(L"BUTTON", L"×", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+        cfg.popupWidth - 30, 0, 30, 30,
+        m_hWnd, (HMENU)IDC_EXIT_BUTTON, hInst, NULL);
+    SendMessageW(m_hExitButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+
+    // 设置鼠标离开检测
+    TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, m_hWnd, 0 };
+    TrackMouseEvent(&tme);
 
     return true;
 }
 
 void PopupWindow::Show() {
-    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    SetWindowPos(m_hWnd, HWND_TOPMOST,
-        (screenWidth - m_config.popupWidth) / 2, 0,
-        m_config.popupWidth, m_config.popupHeight,
-        SWP_SHOWWINDOW);
+    if (IsWindowVisible(m_hWnd)) return;
+    int x = (m_lastX != 0) ? m_lastX : (GetSystemMetrics(SM_CXSCREEN) - m_config.popupWidth) / 2;
+    SetWindowPos(m_hWnd, HWND_TOPMOST, x, 0, m_config.popupWidth, m_config.popupHeight, SWP_NOZORDER);
+    AnimateWindow(m_hWnd, 200, AW_SLIDE | AW_VER_POSITIVE | AW_ACTIVATE);
     m_hHoverButton = NULL;
-    m_bTracking = false;
+    CancelAutoHide();
+    TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, m_hWnd, 0 };
+    TrackMouseEvent(&tme);
 }
 
 void PopupWindow::Hide() {
-    ShowWindow(m_hWnd, SW_HIDE);
+    if (!IsWindowVisible(m_hWnd)) return;
+    UpdateLastX();
+    AnimateWindow(m_hWnd, 200, AW_SLIDE | AW_VER_NEGATIVE | AW_HIDE);
+    CancelAutoHide();
 }
 
+void PopupWindow::UpdateLastX() {
+    RECT rc;
+    GetWindowRect(m_hWnd, &rc);
+    m_lastX = rc.left;
+}
+
+void PopupWindow::AdhereToTop() {
+    if (!IsWindowVisible(m_hWnd)) return;
+    RECT rc;
+    GetWindowRect(m_hWnd, &rc);
+    int x = rc.left;
+    SetWindowPos(m_hWnd, HWND_TOPMOST, x, 0, m_config.popupWidth, m_config.popupHeight, SWP_NOZORDER);
+    UpdateLastX();
+    ScheduleAutoHide();
+}
+
+void PopupWindow::ScheduleAutoHide() {
+    if (m_autoHideScheduled) return;
+    SetTimer(m_hWnd, 100, 2000, NULL);
+    m_autoHideScheduled = true;
+}
+
+void PopupWindow::CancelAutoHide() {
+    if (m_autoHideScheduled) {
+        KillTimer(m_hWnd, 100);
+        m_autoHideScheduled = false;
+    }
+}
+
+void PopupWindow::OnAutoHideTimer() {
+    KillTimer(m_hWnd, 100);
+    m_autoHideScheduled = false;
+    if (IsWindowVisible(m_hWnd)) {
+        POINT pt;
+        GetCursorPos(&pt);
+        RECT rc;
+        GetWindowRect(m_hWnd, &rc);
+        if (!PtInRect(&rc, pt)) {
+            Hide();
+        }
+    }
+}
+
+// 更新地址显示，状态显示为“检测中...”
+void PopupWindow::SetCurrentServerInfo() {
+    // 更新地址控件
+    if (m_hServerAddressStatic) {
+        std::wstring addrText;
+        if (!m_config.servers.empty()) {
+            int idx = m_config.currentServer;
+            std::string addr = m_config.servers[idx].host + ":" + std::to_string(m_config.servers[idx].port);
+            addrText = UTF8ToWide(addr);
+        } else {
+            addrText = L"无服务器配置";
+        }
+        SetWindowTextW(m_hServerAddressStatic, addrText.c_str());
+        InvalidateRect(m_hServerAddressStatic, NULL, TRUE);
+        UpdateWindow(m_hServerAddressStatic);
+    }
+    // 更新状态控件为“检测中...”
+    if (m_hServerStatusStatic) {
+        SetWindowTextW(m_hServerStatusStatic, L"检测中...");
+        InvalidateRect(m_hServerStatusStatic, NULL, TRUE);
+        UpdateWindow(m_hServerStatusStatic);
+    }
+}
+
+// 更新状态控件（地址已经独立显示，此处只更新状态）
 void PopupWindow::UpdateServerStatus(const ServerStatus& status) {
-    if (!m_hServerStatic) return;
+    if (!m_hServerStatusStatic) return;
     std::wstring text;
     if (status.online) {
         wchar_t buf[1024];
@@ -131,7 +207,16 @@ void PopupWindow::UpdateServerStatus(const ServerStatus& status) {
     } else {
         text = L"离线";
     }
-    SetWindowTextW(m_hServerStatic, text.c_str());
+    SetWindowTextW(m_hServerStatusStatic, text.c_str());
+    InvalidateRect(m_hServerStatusStatic, NULL, TRUE);
+    UpdateWindow(m_hServerStatusStatic);
+}
+
+void PopupWindow::SyncCurrentServerIndex(int idx) {
+    if (idx >= 0 && idx < (int)m_config.servers.size()) {
+        m_config.currentServer = idx;
+        SetCurrentServerInfo();   // 更新地址和状态为“检测中...”
+    }
 }
 
 bool PopupWindow::IsButton(HWND hWnd) {
@@ -139,8 +224,7 @@ bool PopupWindow::IsButton(HWND hWnd) {
         if (hWnd == m_hShortcutButtons[i]) return true;
     }
     HWND hLaunch = GetDlgItem(m_hWnd, IDC_LAUNCH_BUTTON);
-    HWND hExit = GetDlgItem(m_hWnd, IDC_EXIT_BUTTON);
-    return (hWnd == hLaunch || hWnd == hExit);
+    return (hWnd == hLaunch || hWnd == m_hExitButton || hWnd == m_hSwitchButton);
 }
 
 void PopupWindow::OnMouseMove(WPARAM wParam, LPARAM lParam) {
@@ -148,14 +232,11 @@ void PopupWindow::OnMouseMove(WPARAM wParam, LPARAM lParam) {
     HWND hChild = ChildWindowFromPoint(m_hWnd, pt);
     if (IsButton(hChild)) {
         SetHoverButton(hChild);
-        if (!m_bTracking) {
-            TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT), TME_LEAVE, m_hWnd, 0 };
-            TrackMouseEvent(&tme);
-            m_bTracking = true;
-        }
     } else {
         SetHoverButton(NULL);
     }
+    (void)wParam;
+    CancelAutoHide();
 }
 
 void PopupWindow::SetHoverButton(HWND hBtn) {
@@ -178,6 +259,34 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
     if (!pThis) return DefWindowProcW(hWnd, msg, wParam, lParam);
 
     switch (msg) {
+        case WM_NCHITTEST: {
+            POINT pt = { LOWORD(lParam), HIWORD(lParam) };
+            ScreenToClient(hWnd, &pt);
+            if (pt.y < 30) {
+                return HTCAPTION;
+            }
+            break;
+        }
+        case WM_MOVING: {
+            RECT* pRect = (RECT*)lParam;
+            int height = pRect->bottom - pRect->top;
+            pRect->top = 0;
+            pRect->bottom = height;
+            return TRUE;
+        }
+        case WM_EXITSIZEMOVE: {
+            pThis->UpdateLastX();
+            break;
+        }
+        case WM_MOUSELEAVE: {
+            pThis->AdhereToTop();
+            break;
+        }
+        case WM_TIMER:
+            if (wParam == 100) {
+                pThis->OnAutoHideTimer();
+            }
+            break;
         case WM_ERASEBKGND: {
             HDC hdc = (HDC)wParam;
             RECT rc;
@@ -194,10 +303,6 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         case WM_MOUSEMOVE:
             pThis->OnMouseMove(wParam, lParam);
             break;
-        case WM_MOUSELEAVE:
-            pThis->SetHoverButton(NULL);
-            pThis->m_bTracking = false;
-            break;
         case WM_DRAWITEM: {
             LPDRAWITEMSTRUCT lpDIS = (LPDRAWITEMSTRUCT)lParam;
             if (lpDIS->CtlType == ODT_BUTTON) {
@@ -210,6 +315,9 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 bool bPressed = (lpDIS->itemState & ODS_SELECTED);
 
                 COLORREF bgColor = bPressed ? RGB(60, 60, 60) : RGB(45, 45, 45);
+                if (lpDIS->hwndItem == pThis->m_hExitButton) {
+                    bgColor = bPressed ? RGB(120, 40, 40) : (bHover ? RGB(180, 60, 60) : RGB(80, 40, 40));
+                }
                 HBRUSH bgBrush = CreateSolidBrush(bgColor);
                 FillRect(hdc, &lpDIS->rcItem, bgBrush);
                 DeleteObject(bgBrush);
@@ -218,9 +326,8 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
                 SelectObject(hdc, pen);
                 SelectObject(hdc, GetStockObject(NULL_BRUSH));
-                // 绘制圆角矩形
-                RoundRect(hdc, lpDIS->rcItem.left, lpDIS->rcItem.top,
-                          lpDIS->rcItem.right, lpDIS->rcItem.bottom, 10, 10);
+                Rectangle(hdc, lpDIS->rcItem.left, lpDIS->rcItem.top,
+                    lpDIS->rcItem.right, lpDIS->rcItem.bottom);
                 DeleteObject(pen);
 
                 COLORREF textColor = bHover ? RGB(255, 200, 0) : RGB(220, 220, 220);
@@ -246,6 +353,8 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 SendMessage(GetParent(hWnd), WM_COMMAND, IDC_LAUNCH_BUTTON, 0);
             } else if (id == IDC_EXIT_BUTTON) {
                 PostQuitMessage(0);
+            } else if (id == IDC_SWITCH_BUTTON) {
+                SendMessage(GetParent(hWnd), WM_COMMAND, IDC_SWITCH_BUTTON, 0);
             }
             break;
         }

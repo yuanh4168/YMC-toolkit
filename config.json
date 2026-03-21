@@ -1,67 +1,22 @@
 {
-    "game": {
-        "command": "D:\\java\\zulu25.30.17-ca-jdk25.0.1-win_x64\\bin\\java.exe",
-        "args": [
-            "-Dstderr.encoding=UTF-8",
-            "-Dstdout.encoding=UTF-8",
-            "-Dfile.encoding=COMPAT",
-            "-XX:+UseG1GC",
-            "-XX:-UseAdaptiveSizePolicy",
-            "-XX:-OmitStackTraceInFastThrow",
-            "-Djdk.lang.Process.allowAmbiguousCommands=true",
-            "-Dfml.ignoreInvalidMinecraftCertificates=True",
-            "-Dfml.ignorePatchDiscrepancies=True",
-            "-Dlog4j2.formatMsgNoLookups=true",
-            "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump",
-            "-Djava.library.path=D:\\iGame\\.minecraft\\versions\\1.21.11-Fabric\\1.21.11-Fabric-natives",
-            "-Djna.tmpdir=D:\\iGame\\.minecraft\\versions\\1.21.11-Fabric\\1.21.11-Fabric-natives",
-            "-Dorg.lwjgl.system.SharedLibraryExtractPath=D:\\iGame\\.minecraft\\versions\\1.21.11-Fabric\\1.21.11-Fabric-natives",
-            "-Dio.netty.native.workdir=D:\\iGame\\.minecraft\\versions\\1.21.11-Fabric\\1.21.11-Fabric-natives",
-            "-Dminecraft.launcher.brand=PCL",
-            "-Dminecraft.launcher.version=381",
-            "-cp",
-            "D:\\iGame\\.minecraft\\libraries\\org\\ow2\\asm\\asm\\9.9\\asm-9.9.jar;D:\\iGame\\.minecraft\\libraries\\org\\ow2\\asm\\asm-analysis\\9.9\\asm-analysis-9.9.jar;...（完整 classpath）...;D:\\iGame\\.minecraft\\versions\\1.21.11-Fabric\\1.21.11-Fabric.jar",
-            "-Xmn614m",
-            "-Xmx4096m",
-            "--add-exports",
-            "cpw.mods.bootstraplauncher/cpw.mods.bootstraplauncher=ALL-UNNAMED",
-            "-Doolloo.jlw.tmpdir=D:\\Application\\HMCL\\PCL",
-            "-jar",
-            "D:\\Application\\HMCL\\PCL\\JavaWrapper.jar",
-            "net.fabricmc.loader.impl.launch.knot.KnotClient",
-            "--username",
-            "YuanHollow",
-            "--version",
-            "1.21.11-Fabric",
-            "--gameDir",
-            "D:\\iGame\\.minecraft\\versions\\1.21.11-Fabric",
-            "--assetsDir",
-            "D:\\iGame\\.minecraft\\assets",
-            "--assetIndex",
-            "29",
-            "--uuid",
-            "64694abce149403bb08fc0e9507c5ffd",
-            "--accessToken",
-            "eyJra...（你的 token）",
-            "--clientId",
-            "${clientid}",
-            "--xuid",
-            "${auth_xuid}",
-            "--versionType",
-            "PCL",
-            "--width",
-            "854",
-            "--height",
-            "480"
-        ]
-    },
-    "server": {
-        "host": "www.214sea.space",
-        "port": 25565
-    },
+    "current_server": 0,
     "news": {
         "url": "https://www.minecraft.net/zh-hans/articles"
     },
+    "servers": [
+        {
+            "host": "3c3u.org",
+            "port": 25565
+        },
+        {
+            "host": "mc.hypixel.net",
+            "port": 25565
+        },
+        {
+            "host": "xmw11.com",
+            "port": 25565
+        }
+    ],
     "shortcuts": [
         {
             "name": "百度",
@@ -82,7 +37,7 @@
     ],
     "ui": {
         "edge_threshold": 10,
-        "popup_width": 400,
-        "popup_height": 300
+        "popup_height": 300,
+        "popup_width": 400
     }
 }
