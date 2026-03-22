@@ -25,6 +25,30 @@ PopupWindow::~PopupWindow() {
     if (m_hBoldFont) DeleteObject(m_hBoldFont);
 }
 
+// 按钮子类化过程
+LRESULT CALLBACK PopupWindow::ButtonSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+    // 获取父窗口指针（通过 dwRefData 传递）
+    PopupWindow* pThis = reinterpret_cast<PopupWindow*>(dwRefData);
+    if (!pThis) return DefSubclassProc(hWnd, msg, wParam, lParam);
+
+    switch (msg) {
+        case WM_MOUSEMOVE: {
+            // 鼠标移入按钮，通知父窗口更新悬停状态
+            PostMessage(pThis->m_hWnd, WM_UPDATE_HOVER, (WPARAM)hWnd, 0);
+            // 确保鼠标离开检测
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+            break;
+        }
+        case WM_MOUSELEAVE: {
+            // 鼠标离开按钮，通知父窗口清除悬停
+            PostMessage(pThis->m_hWnd, WM_UPDATE_HOVER, 0, 0);
+            break;
+        }
+    }
+    return DefSubclassProc(hWnd, msg, wParam, lParam);
+}
+
 bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     m_config = cfg;
 
@@ -52,7 +76,7 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     lf.lfHeight = -14;
     lf.lfWeight = FW_NORMAL;
     lf.lfCharSet = DEFAULT_CHARSET;
-    wcscpy_s(lf.lfFaceName, L"MS Shell Dlg");
+    wcscpy_s(lf.lfFaceName, L"Segoe UI");
     m_hNormalFont = CreateFontIndirectW(&lf);
 
     lf.lfWeight = FW_BOLD;
@@ -61,20 +85,16 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     // 服务器地址标签（标题）
     CreateWindowW(L"STATIC", L"当前服务器", WS_CHILD | WS_VISIBLE,
         10, 10, 380, 20, m_hWnd, NULL, hInst, NULL);
-    // 服务器地址内容（单行）
     m_hServerAddressStatic = CreateWindowW(L"STATIC", L"未知", WS_CHILD | WS_VISIBLE,
         10, 30, 380, 20, m_hWnd, (HMENU)IDC_SERVER_STATUS, hInst, NULL);
     SendMessageW(m_hServerAddressStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
 
-    // 服务器状态标签（标题）
     CreateWindowW(L"STATIC", L"服务器状态", WS_CHILD | WS_VISIBLE,
         10, 60, 380, 20, m_hWnd, NULL, hInst, NULL);
-    // 服务器状态内容（多行，高度足够）
     m_hServerStatusStatic = CreateWindowW(L"STATIC", L"未知", WS_CHILD | WS_VISIBLE,
         10, 80, 380, 80, m_hWnd, (HMENU)(IDC_SERVER_STATUS + 1), hInst, NULL);
     SendMessageW(m_hServerStatusStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
 
-    // 快捷按钮（位置下移）
     int btnWidth = (cfg.popupWidth - 50) / 4;
     for (int i = 0; i < 4 && i < (int)cfg.shortcuts.size(); ++i) {
         m_hShortcutButtons[i] = CreateWindowW(
@@ -84,25 +104,26 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
             10 + i * (btnWidth + 10), 170, btnWidth, 30,
             m_hWnd, (HMENU)(IDC_SHORTCUT1 + i), hInst, NULL);
         SendMessageW(m_hShortcutButtons[i], WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+        // 子类化按钮
+        SetWindowSubclass(m_hShortcutButtons[i], ButtonSubclassProc, 0, (DWORD_PTR)this);
     }
 
-    // 启动游戏按钮
     HWND hLaunch = CreateWindowW(L"BUTTON", L"启动游戏", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         150, 220, 100, 30, m_hWnd, (HMENU)IDC_LAUNCH_BUTTON, hInst, NULL);
     SendMessageW(hLaunch, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+    SetWindowSubclass(hLaunch, ButtonSubclassProc, 0, (DWORD_PTR)this);
 
-    // 切换服务器按钮
     m_hSwitchButton = CreateWindowW(L"BUTTON", L"切换服务器", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         260, 220, 100, 30, m_hWnd, (HMENU)IDC_SWITCH_BUTTON, hInst, NULL);
     SendMessageW(m_hSwitchButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+    SetWindowSubclass(m_hSwitchButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
 
-    // X按钮
     m_hExitButton = CreateWindowW(L"BUTTON", L"×", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         cfg.popupWidth - 30, 0, 30, 30,
         m_hWnd, (HMENU)IDC_EXIT_BUTTON, hInst, NULL);
     SendMessageW(m_hExitButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+    SetWindowSubclass(m_hExitButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
 
-    // 设置鼠标离开检测
     TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, m_hWnd, 0 };
     TrackMouseEvent(&tme);
 
@@ -170,7 +191,6 @@ void PopupWindow::OnAutoHideTimer() {
     }
 }
 
-// 更新地址控件，并将状态控件设为“检测中...”
 void PopupWindow::SetCurrentServerInfo() {
     if (!m_hServerAddressStatic || !m_hServerStatusStatic) return;
     if (!m_config.servers.empty()) {
@@ -188,7 +208,6 @@ void PopupWindow::SetCurrentServerInfo() {
     UpdateWindow(m_hServerStatusStatic);
 }
 
-// 更新状态控件（地址控件保持不变）
 void PopupWindow::UpdateServerStatus(const ServerStatus& status) {
     if (!m_hServerStatusStatic) return;
     std::wstring text;
@@ -211,7 +230,7 @@ void PopupWindow::UpdateServerStatus(const ServerStatus& status) {
 void PopupWindow::SyncCurrentServerIndex(int idx) {
     if (idx >= 0 && idx < (int)m_config.servers.size()) {
         m_config.currentServer = idx;
-        SetCurrentServerInfo();   // 更新地址和状态为“检测中...”
+        SetCurrentServerInfo();
     }
 }
 
@@ -221,18 +240,6 @@ bool PopupWindow::IsButton(HWND hWnd) {
     }
     HWND hLaunch = GetDlgItem(m_hWnd, IDC_LAUNCH_BUTTON);
     return (hWnd == hLaunch || hWnd == m_hExitButton || hWnd == m_hSwitchButton);
-}
-
-void PopupWindow::OnMouseMove(WPARAM wParam, LPARAM lParam) {
-    POINT pt = { LOWORD(lParam), HIWORD(lParam) };
-    HWND hChild = ChildWindowFromPoint(m_hWnd, pt);
-    if (IsButton(hChild)) {
-        SetHoverButton(hChild);
-    } else {
-        SetHoverButton(NULL);
-    }
-    (void)wParam;
-    CancelAutoHide();
 }
 
 void PopupWindow::SetHoverButton(HWND hBtn) {
@@ -255,6 +262,12 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
     if (!pThis) return DefWindowProcW(hWnd, msg, wParam, lParam);
 
     switch (msg) {
+        case WM_UPDATE_HOVER: {
+            // wParam 为按钮句柄，若为 0 则清除悬停
+            HWND hBtn = (HWND)wParam;
+            pThis->SetHoverButton(hBtn);
+            return 0;
+        }
         case WM_NCHITTEST: {
             POINT pt = { LOWORD(lParam), HIWORD(lParam) };
             ScreenToClient(hWnd, &pt);
@@ -275,6 +288,7 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             break;
         }
         case WM_MOUSELEAVE: {
+            pThis->SetHoverButton(NULL);
             pThis->AdhereToTop();
             break;
         }
@@ -296,12 +310,11 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             SetBkColor(hdcStatic, RGB(32, 32, 32));
             return (LRESULT)pThis->m_hBkBrush;
         }
-        case WM_MOUSEMOVE:
-            pThis->OnMouseMove(wParam, lParam);
-            break;
-        case WM_DRAWITEM: {
+        case WM_DRAWITEM:
+        {
             LPDRAWITEMSTRUCT lpDIS = (LPDRAWITEMSTRUCT)lParam;
-            if (lpDIS->CtlType == ODT_BUTTON) {
+            if (lpDIS->CtlType == ODT_BUTTON)
+            {
                 wchar_t text[256];
                 GetWindowTextW(lpDIS->hwndItem, text, 256);
                 HDC hdc = lpDIS->hDC;
@@ -310,10 +323,26 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 bool bHover = (lpDIS->hwndItem == pThis->m_hHoverButton);
                 bool bPressed = (lpDIS->itemState & ODS_SELECTED);
 
-                COLORREF bgColor = bPressed ? RGB(60, 60, 60) : RGB(45, 45, 45);
-                if (lpDIS->hwndItem == pThis->m_hExitButton) {
-                    bgColor = bPressed ? RGB(120, 40, 40) : (bHover ? RGB(180, 60, 60) : RGB(80, 40, 40));
+                COLORREF bgColor;
+                if (lpDIS->hwndItem == pThis->m_hExitButton)
+                {
+                    if (bPressed)
+                        bgColor = RGB(40, 20, 20);
+                    else if (bHover)
+                        bgColor = RGB(60, 30, 30);
+                    else
+                        bgColor = RGB(80, 40, 40);
                 }
+                else
+                {
+                    if (bPressed)
+                        bgColor = RGB(30, 30, 30);
+                    else if (bHover)
+                        bgColor = RGB(40, 40, 40);
+                    else
+                        bgColor = RGB(60, 60, 60);
+                }
+
                 HBRUSH bgBrush = CreateSolidBrush(bgColor);
                 FillRect(hdc, &lpDIS->rcItem, bgBrush);
                 DeleteObject(bgBrush);
@@ -323,12 +352,11 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 SelectObject(hdc, pen);
                 SelectObject(hdc, GetStockObject(NULL_BRUSH));
                 Rectangle(hdc, lpDIS->rcItem.left, lpDIS->rcItem.top,
-                    lpDIS->rcItem.right, lpDIS->rcItem.bottom);
+                          lpDIS->rcItem.right, lpDIS->rcItem.bottom);
                 DeleteObject(pen);
 
-                COLORREF textColor = bHover ? RGB(255, 200, 0) : RGB(220, 220, 220);
+                COLORREF textColor = bHover ? RGB(255, 220, 100) : RGB(220, 220, 220);
                 SetTextColor(hdc, textColor);
-
                 HFONT hOldFont = (HFONT)SelectObject(hdc, bHover ? pThis->m_hBoldFont : pThis->m_hNormalFont);
                 DrawTextW(hdc, text, -1, &lpDIS->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                 SelectObject(hdc, hOldFont);

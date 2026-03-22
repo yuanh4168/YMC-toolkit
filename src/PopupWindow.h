@@ -13,6 +13,9 @@
 #define IDC_EXIT_BUTTON   1008
 #define IDC_SWITCH_BUTTON 1009
 
+// 自定义消息：通知父窗口按钮悬停变化
+#define WM_UPDATE_HOVER   (WM_USER + 200)
+
 class PopupWindow {
 public:
     PopupWindow();
@@ -22,16 +25,16 @@ public:
     void Show();
     void Hide();
     void UpdateServerStatus(const ServerStatus& status);
-    void SetCurrentServerInfo();          // 更新地址和状态为“检测中...”
-    void SyncCurrentServerIndex(int idx); // 同步索引并刷新地址
+    void SetCurrentServerInfo();
+    void SyncCurrentServerIndex(int idx);
     HWND GetHWND() const { return m_hWnd; }
     int GetLastX() const { return m_lastX; }
     void SetLastX(int x) { m_lastX = x; }
 
 private:
     HWND m_hWnd;
-    HWND m_hServerAddressStatic;          // 显示服务器地址的静态控件
-    HWND m_hServerStatusStatic;           // 显示状态的静态控件
+    HWND m_hServerAddressStatic;
+    HWND m_hServerStatusStatic;
     HWND m_hShortcutButtons[4];
     Config m_config;
     HBRUSH m_hBkBrush;
@@ -45,7 +48,8 @@ private:
 
     static std::wstring UTF8ToWide(const std::string& utf8);
     static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    void OnMouseMove(WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK ButtonSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+
     void SetHoverButton(HWND hBtn);
     bool IsButton(HWND hWnd);
     void ScheduleAutoHide();
