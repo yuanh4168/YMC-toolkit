@@ -6,6 +6,9 @@
 static std::mutex g_pingMutex;
 static bool g_pingInProgress = false;
 
+// 自定义消息：配置已更新
+#define WM_CONFIG_UPDATED (WM_USER + 300)
+
 MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false) {}
 MainWindow::~MainWindow() {}
 
@@ -81,11 +84,8 @@ void MainWindow::CheckMouseEdge() {
 }
 
 void MainWindow::StartServerPing() {
-    // 避免并发 ping 导致资源冲突
     std::lock_guard<std::mutex> lock(g_pingMutex);
-    if (g_pingInProgress) {
-        return; // 已经有 ping 在进行中，跳过本次
-    }
+    if (g_pingInProgress) return;
     g_pingInProgress = true;
 
     std::thread([this]() {
@@ -117,8 +117,8 @@ void MainWindow::SwitchToNextServer() {
     if (m_config.servers.empty()) return;
     m_config.currentServer = (m_config.currentServer + 1) % m_config.servers.size();
     UpdateConfigAndSave();
-    m_popup.SyncCurrentServerIndex(m_config.currentServer);   // 同步索引并刷新地址和状态
-    StartServerPing();                // 开始异步查询
+    m_popup.SyncCurrentServerIndex(m_config.currentServer);
+    StartServerPing();
 }
 
 void MainWindow::UpdateConfigAndSave() {
@@ -163,6 +163,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 delete pStatus;
                 break;
             }
+            case WM_CONFIG_UPDATED:
+                // 配置更新（例如从管理对话框保存后）
+                pThis->m_popup.SetCurrentServerInfo();
+                pThis->StartServerPing();
+                break;
             case WM_DESTROY:
                 PostQuitMessage(0);
                 break;

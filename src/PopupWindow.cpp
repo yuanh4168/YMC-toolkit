@@ -1,4 +1,5 @@
 #include "PopupWindow.h"
+#include "ServerManageDlg.h"
 #include <shellapi.h>
 #include <cstdio>
 #include <commctrl.h>
@@ -10,6 +11,9 @@
 #pragma comment(lib, "comctl32.lib")
 
 using namespace Gdiplus;
+
+// 静态成员定义
+HWND PopupWindow::s_hManageDlg = NULL;
 
 // ---------- 静态辅助函数 ----------
 std::wstring PopupWindow::UTF8ToWide(const std::string& utf8) {
@@ -28,268 +32,7 @@ std::string PopupWindow::WideToUTF8(const std::wstring& wide) {
     return utf8;
 }
 
-// ---------- 服务器管理对话框窗口过程 ----------
-static LRESULT CALLBACK ManageDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
-    static Config* s_pConfig = nullptr;
-    static HWND s_hList = nullptr;
-
-    switch (msg) {
-        case WM_NCCREATE: {
-            CREATESTRUCTW* pCreate = (CREATESTRUCTW*)lParam;
-            SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)pCreate->lpCreateParams);
-            return DefWindowProcW(hDlg, msg, wParam, lParam);
-        }
-        case WM_INITDIALOG: {
-            s_pConfig = (Config*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hDlg, GWLP_HINSTANCE);
-            s_hList = CreateWindowW(WC_LISTVIEWW, NULL,
-                WS_CHILD | WS_VISIBLE | WS_BORDER | LVS_REPORT | LVS_EDITLABELS,
-                10, 10, 380, 180, hDlg, (HMENU)1001, hInst, NULL);
-            ListView_SetExtendedListViewStyle(s_hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-            LVCOLUMNW lvc = {0};
-            lvc.mask = LVCF_TEXT | LVCF_WIDTH;
-            lvc.cx = 250;
-            lvc.pszText = L"服务器地址";
-            ListView_InsertColumn(s_hList, 0, &lvc);
-            lvc.cx = 80;
-            lvc.pszText = L"端口";
-            ListView_InsertColumn(s_hList, 1, &lvc);
-            for (size_t i = 0; i < s_pConfig->servers.size(); ++i) {
-                LVITEMW lvi = {0};
-                lvi.mask = LVIF_TEXT;
-                lvi.iItem = (int)i;
-                std::wstring hostW = PopupWindow::UTF8ToWide(s_pConfig->servers[i].host);
-                lvi.pszText = (LPWSTR)hostW.c_str();
-                ListView_InsertItem(s_hList, &lvi);
-                wchar_t portStr[16];
-                swprintf(portStr, 16, L"%d", s_pConfig->servers[i].port);
-                // 使用 SendMessage 设置子项文本
-                LVITEMW item = {0};
-                item.iSubItem = 1;
-                item.pszText = portStr;
-                SendMessageW(s_hList, LVM_SETITEMTEXTW, (WPARAM)i, (LPARAM)&item);
-            }
-            // 按钮创建部分不变...
-            CreateWindowW(L"BUTTON", L"添加", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                10, 200, 60, 25, hDlg, (HMENU)1002, hInst, NULL);
-            CreateWindowW(L"BUTTON", L"编辑", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                80, 200, 60, 25, hDlg, (HMENU)1003, hInst, NULL);
-            CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                150, 200, 60, 25, hDlg, (HMENU)1004, hInst, NULL);
-            CreateWindowW(L"BUTTON", L"上移", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                220, 200, 60, 25, hDlg, (HMENU)1005, hInst, NULL);
-            CreateWindowW(L"BUTTON", L"下移", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                290, 200, 60, 25, hDlg, (HMENU)1006, hInst, NULL);
-            CreateWindowW(L"BUTTON", L"测试连接", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                10, 235, 100, 25, hDlg, (HMENU)1007, hInst, NULL);
-            CreateWindowW(L"BUTTON", L"确定", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                310, 235, 70, 25, hDlg, (HMENU)IDOK, hInst, NULL);
-            return TRUE;
-        }
-        case WM_COMMAND: {
-            int id = LOWORD(wParam);
-            HWND hList = s_hList;
-            if (id == IDOK) {
-                int count = ListView_GetItemCount(hList);
-                s_pConfig->servers.clear();
-                for (int i = 0; i < count; ++i) {
-                    wchar_t host[256];
-                    wchar_t portStr[16];
-                    // 获取主项文本
-                    LVITEMW item = {0};
-                    item.iSubItem = 0;
-                    item.pszText = host;
-                    item.cchTextMax = 256;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, i, (LPARAM)&item);
-                    // 获取子项文本
-                    LVITEMW item2 = {0};
-                    item2.iSubItem = 1;
-                    item2.pszText = portStr;
-                    item2.cchTextMax = 16;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, i, (LPARAM)&item2);
-                    ServerInfo si;
-                    si.host = PopupWindow::WideToUTF8(host);
-                    si.port = _wtoi(portStr);
-                    if (!si.host.empty() && si.port > 0 && si.port <= 65535) {
-                        s_pConfig->servers.push_back(si);
-                    }
-                }
-                wchar_t modulePath[MAX_PATH];
-                GetModuleFileNameW(NULL, modulePath, MAX_PATH);
-                std::wstring ws(modulePath);
-                std::string exePath(ws.begin(), ws.end());
-                size_t pos = exePath.find_last_of("\\");
-                std::string configPath = exePath.substr(0, pos + 1) + "config.json";
-                s_pConfig->Save(configPath);
-                DestroyWindow(hDlg);
-                return TRUE;
-            }
-            else if (id == 1002) { // 添加
-                wchar_t host[256] = L"example.com";
-                wchar_t portStr[16] = L"25565";
-                int newIndex = ListView_GetItemCount(hList);
-                LVITEMW lvi = {0};
-                lvi.mask = LVIF_TEXT;
-                lvi.iItem = newIndex;
-                lvi.pszText = host;
-                ListView_InsertItem(hList, &lvi);
-                LVITEMW item = {0};
-                item.iSubItem = 1;
-                item.pszText = portStr;
-                SendMessageW(hList, LVM_SETITEMTEXTW, (WPARAM)newIndex, (LPARAM)&item);
-            }
-            else if (id == 1003) { // 编辑
-                int sel = ListView_GetSelectionMark(hList);
-                if (sel >= 0) {
-                    wchar_t host[256];
-                    wchar_t portStr[16];
-                    LVITEMW item = {0};
-                    item.iSubItem = 0;
-                    item.pszText = host;
-                    item.cchTextMax = 256;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel, (LPARAM)&item);
-                    LVITEMW item2 = {0};
-                    item2.iSubItem = 1;
-                    item2.pszText = portStr;
-                    item2.cchTextMax = 16;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel, (LPARAM)&item2);
-                    MessageBoxW(hDlg, L"编辑功能待完善", L"提示", MB_OK);
-                }
-            }
-            else if (id == 1004) { // 删除
-                int sel = ListView_GetSelectionMark(hList);
-                if (sel >= 0) {
-                    ListView_DeleteItem(hList, sel);
-                }
-            }
-            else if (id == 1005) { // 上移
-                int sel = ListView_GetSelectionMark(hList);
-                if (sel > 0) {
-                    wchar_t host1[256], host2[256];
-                    wchar_t port1[16], port2[16];
-                    LVITEMW item1 = {0};
-                    item1.iSubItem = 0;
-                    item1.pszText = host1;
-                    item1.cchTextMax = 256;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel, (LPARAM)&item1);
-                    LVITEMW item1p = {0};
-                    item1p.iSubItem = 1;
-                    item1p.pszText = port1;
-                    item1p.cchTextMax = 16;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel, (LPARAM)&item1p);
-                    LVITEMW item2 = {0};
-                    item2.iSubItem = 0;
-                    item2.pszText = host2;
-                    item2.cchTextMax = 256;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel-1, (LPARAM)&item2);
-                    LVITEMW item2p = {0};
-                    item2p.iSubItem = 1;
-                    item2p.pszText = port2;
-                    item2p.cchTextMax = 16;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel-1, (LPARAM)&item2p);
-                    // 设置新值
-                    LVITEMW set1 = {0};
-                    set1.iSubItem = 0;
-                    set1.pszText = host2;
-                    SendMessageW(hList, LVM_SETITEMTEXTW, sel, (LPARAM)&set1);
-                    LVITEMW set1p = {0};
-                    set1p.iSubItem = 1;
-                    set1p.pszText = port2;
-                    SendMessageW(hList, LVM_SETITEMTEXTW, sel, (LPARAM)&set1p);
-                    LVITEMW set2 = {0};
-                    set2.iSubItem = 0;
-                    set2.pszText = host1;
-                    SendMessageW(hList, LVM_SETITEMTEXTW, sel-1, (LPARAM)&set2);
-                    LVITEMW set2p = {0};
-                    set2p.iSubItem = 1;
-                    set2p.pszText = port1;
-                    SendMessageW(hList, LVM_SETITEMTEXTW, sel-1, (LPARAM)&set2p);
-                    ListView_SetSelectionMark(hList, sel-1);
-                }
-            }
-            else if (id == 1006) { // 下移
-                int sel = ListView_GetSelectionMark(hList);
-                int count = ListView_GetItemCount(hList);
-                if (sel >= 0 && sel < count-1) {
-                    wchar_t host1[256], host2[256];
-                    wchar_t port1[16], port2[16];
-                    LVITEMW item1 = {0};
-                    item1.iSubItem = 0;
-                    item1.pszText = host1;
-                    item1.cchTextMax = 256;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel, (LPARAM)&item1);
-                    LVITEMW item1p = {0};
-                    item1p.iSubItem = 1;
-                    item1p.pszText = port1;
-                    item1p.cchTextMax = 16;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel, (LPARAM)&item1p);
-                    LVITEMW item2 = {0};
-                    item2.iSubItem = 0;
-                    item2.pszText = host2;
-                    item2.cchTextMax = 256;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel+1, (LPARAM)&item2);
-                    LVITEMW item2p = {0};
-                    item2p.iSubItem = 1;
-                    item2p.pszText = port2;
-                    item2p.cchTextMax = 16;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel+1, (LPARAM)&item2p);
-                    LVITEMW set1 = {0};
-                    set1.iSubItem = 0;
-                    set1.pszText = host2;
-                    SendMessageW(hList, LVM_SETITEMTEXTW, sel, (LPARAM)&set1);
-                    LVITEMW set1p = {0};
-                    set1p.iSubItem = 1;
-                    set1p.pszText = port2;
-                    SendMessageW(hList, LVM_SETITEMTEXTW, sel, (LPARAM)&set1p);
-                    LVITEMW set2 = {0};
-                    set2.iSubItem = 0;
-                    set2.pszText = host1;
-                    SendMessageW(hList, LVM_SETITEMTEXTW, sel+1, (LPARAM)&set2);
-                    LVITEMW set2p = {0};
-                    set2p.iSubItem = 1;
-                    set2p.pszText = port1;
-                    SendMessageW(hList, LVM_SETITEMTEXTW, sel+1, (LPARAM)&set2p);
-                    ListView_SetSelectionMark(hList, sel+1);
-                }
-            }
-            else if (id == 1007) { // 测试连接
-                int sel = ListView_GetSelectionMark(hList);
-                if (sel >= 0) {
-                    wchar_t host[256];
-                    wchar_t portStr[16];
-                    LVITEMW item = {0};
-                    item.iSubItem = 0;
-                    item.pszText = host;
-                    item.cchTextMax = 256;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel, (LPARAM)&item);
-                    LVITEMW item2 = {0};
-                    item2.iSubItem = 1;
-                    item2.pszText = portStr;
-                    item2.cchTextMax = 16;
-                    SendMessageW(hList, LVM_GETITEMTEXTW, sel, (LPARAM)&item2);
-                    std::string hostA = PopupWindow::WideToUTF8(host);
-                    int port = _wtoi(portStr);
-                    ServerStatus status;
-                    if (PingServer(hostA, port, status)) {
-                        wchar_t msg[512];
-                        swprintf(msg, 512, L"在线 - 延迟: %d ms\n玩家: %d/%d\n版本: %s",
-                            status.latency, status.players, status.maxPlayers,
-                            PopupWindow::UTF8ToWide(status.version).c_str());
-                        MessageBoxW(hDlg, msg, L"测试结果", MB_OK);
-                    } else {
-                        MessageBoxW(hDlg, L"连接失败", L"测试结果", MB_OK);
-                    }
-                }
-            }
-            break;
-        }
-        case WM_CLOSE:
-            DestroyWindow(hDlg);
-            return TRUE;
-    }
-    return DefWindowProcW(hDlg, msg, wParam, lParam);
-}
-// ---------- PopupWindow 实现 ----------
+// ---------- 构造函数 / 析构函数 ----------
 PopupWindow::PopupWindow() 
     : m_hWnd(NULL), m_hServerAddressStatic(NULL), m_hServerStatusStatic(NULL),
       m_hBkBrush(NULL), m_hHoverButton(NULL), m_hNormalFont(NULL), m_hBoldFont(NULL),
@@ -308,6 +51,7 @@ PopupWindow::~PopupWindow() {
     if (m_gdiplusToken) GdiplusShutdown(m_gdiplusToken);
 }
 
+// ---------- 按钮子类化 ----------
 LRESULT CALLBACK PopupWindow::ButtonSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     PopupWindow* pThis = reinterpret_cast<PopupWindow*>(dwRefData);
     if (!pThis) return DefSubclassProc(hWnd, msg, wParam, lParam);
@@ -327,6 +71,7 @@ LRESULT CALLBACK PopupWindow::ButtonSubclassProc(HWND hWnd, UINT msg, WPARAM wPa
     return DefSubclassProc(hWnd, msg, wParam, lParam);
 }
 
+// ---------- 创建主弹窗 ----------
 bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     m_config = cfg;
 
@@ -374,12 +119,12 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     CreateWindowW(L"STATIC", L"服务器状态", WS_CHILD | WS_VISIBLE,
         10, 60, 380, 20, m_hWnd, NULL, hInst, NULL);
     
-    // 服务器状态文字区域
+    // 服务器状态文字区域（宽度310，高度90，为右侧图标留出空间）
     m_hServerStatusStatic = CreateWindowW(L"STATIC", L"未知", WS_CHILD | WS_VISIBLE,
         10, 80, 310, 90, m_hWnd, (HMENU)(IDC_SERVER_STATUS + 1), hInst, NULL);
     SendMessageW(m_hServerStatusStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
 
-    // favicon 控件
+    // favicon 控件（放在服务器状态文字右侧）
     m_hFaviconStatic = CreateWindowW(L"STATIC", NULL, WS_CHILD | WS_VISIBLE | SS_BITMAP,
         320, 80, 32, 32, m_hWnd, NULL, hInst, NULL);
     SendMessageW(m_hFaviconStatic, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)NULL);
@@ -428,6 +173,7 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     return true;
 }
 
+// ---------- 显示/隐藏弹窗 ----------
 void PopupWindow::Show() {
     if (IsWindowVisible(m_hWnd)) return;
     int x = (m_lastX != 0) ? m_lastX : (GetSystemMetrics(SM_CXSCREEN) - m_config.popupWidth) / 2;
@@ -489,6 +235,7 @@ void PopupWindow::OnAutoHideTimer() {
     }
 }
 
+// ---------- 更新服务器信息 ----------
 void PopupWindow::SetCurrentServerInfo() {
     if (!m_hServerAddressStatic || !m_hServerStatusStatic) return;
     if (!m_config.servers.empty()) {
@@ -560,39 +307,31 @@ void PopupWindow::SyncCurrentServerIndex(int idx) {
     }
 }
 
+// ---------- 管理服务器 ----------
 void PopupWindow::OnManageServers() {
-    // 注册对话框窗口类
-    HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(m_hWnd, GWLP_HINSTANCE);
-    WNDCLASSEXW wc = {0};
-    wc.cbSize = sizeof(WNDCLASSEXW);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = ManageDlgProc;
-    wc.hInstance = hInst;
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.lpszClassName = L"ManageDlgClass";
-    RegisterClassExW(&wc);
-    HWND hDlg = CreateWindowExW(0, L"ManageDlgClass", L"服务器管理",
-        WS_OVERLAPPEDWINDOW | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
-        CW_USEDEFAULT, CW_USEDEFAULT, 420, 300, m_hWnd, NULL, hInst, (LPVOID)&m_config);
-    if (hDlg) {
-        ShowWindow(hDlg, SW_SHOW);
+    // 如果已有管理窗口，激活它
+    if (s_hManageDlg && IsWindow(s_hManageDlg)) {
+        SetForegroundWindow(s_hManageDlg);
+        return;
+    }
+
+    // 创建新对话框，并保存句柄
+    s_hManageDlg = CreateManageDialog(m_hWnd, m_config);
+    if (s_hManageDlg) {
+        ShowWindow(s_hManageDlg, SW_SHOW);
         // 模态循环
         MSG msg;
-        while (GetMessage(&msg, NULL, 0, 0)) {
-            if (!IsDialogMessage(hDlg, &msg)) {
+        while (IsWindow(s_hManageDlg) && GetMessage(&msg, NULL, 0, 0)) {
+            if (!IsDialogMessage(s_hManageDlg, &msg)) {
                 TranslateMessage(&msg);
                 DispatchMessage(&msg);
             }
-            if (!IsWindow(hDlg)) break;
         }
+        s_hManageDlg = NULL;   // 窗口已关闭，清空句柄
     }
-    // 刷新当前显示
-    SetCurrentServerInfo();
-    // 通知主窗口重新 ping
-    SendMessage(GetParent(m_hWnd), WM_COMMAND, IDC_SWITCH_BUTTON, 0);
 }
 
+// ---------- 按钮悬停判断 ----------
 bool PopupWindow::IsButton(HWND hWnd) {
     for (int i = 0; i < 4; ++i) {
         if (hWnd == m_hShortcutButtons[i]) return true;
@@ -609,6 +348,7 @@ void PopupWindow::SetHoverButton(HWND hBtn) {
     if (m_hHoverButton) InvalidateRect(m_hHoverButton, NULL, TRUE);
 }
 
+// ---------- GDI+ 辅助 ----------
 Gdiplus::Bitmap* PopupWindow::CreateBitmapFromData(const BYTE* data, size_t len) {
     HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, len);
     if (!hGlobal) return NULL;
@@ -643,6 +383,7 @@ Gdiplus::Bitmap* PopupWindow::Base64ToBitmap(const std::string& base64Data) {
     return CreateBitmapFromData(decoded.data(), decodedLen);
 }
 
+// ---------- 窗口过程 ----------
 LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     PopupWindow* pThis = nullptr;
     if (msg == WM_NCCREATE) {

@@ -8,6 +8,8 @@
 #define IDT_MOUSE_CHECK  1
 #define IDT_SERVER_PING  2
 
+#define WM_CONFIG_UPDATED (WM_USER + 300)
+
 class MainWindow {
 public:
     MainWindow();
