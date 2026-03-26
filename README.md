@@ -43,7 +43,7 @@ MCTool 是一个 Windows 桌面小工具，专注于 **Minecraft 服务器状态
 ### 编译（使用 MinGW）
 项目根目录下提供了 `编译.bat` 脚本，内容如下：
 ```batch
-g++ -Wall -Wextra -g3 -I./include src/*.cpp -o MCTool.exe -lws2_32 -lwininet -lgdi32 -lcomctl32 -lgdiplus -lcrypt32 -lole32 -mwindows
+g++ -std=c++17 -Wall -Wextra -g3 -I./include src/*.cpp -o MCTool.exe -lws2_32 -lwininet -lgdi32 -lcomctl32 -lgdiplus -lcrypt32 -lole32 -lstdc++fs -mwindows
 pause
 ```
 直接双击运行即可生成 `MCTool.exe`。  

@@ -1,4 +1,5 @@
 #include "PopupWindow.h"
+#include "ToolWindow.h"
 #include <shellapi.h>
 #include <cstdio>
 #include <commctrl.h>
@@ -36,7 +37,7 @@ std::string PopupWindow::WideToUTF8(const std::wstring& wide) {
 PopupWindow::PopupWindow() 
     : m_hWnd(NULL), m_hServerAddressStatic(NULL), m_hServerStatusStatic(NULL),
       m_hBkBrush(NULL), m_hHoverButton(NULL), m_hNormalFont(NULL), m_hBoldFont(NULL),
-      m_hExitButton(NULL), m_hSwitchButton(NULL),
+      m_hExitButton(NULL), m_hSwitchButton(NULL), m_hToolButton(NULL),
       m_lastX(0), m_autoHideScheduled(false),
       m_hFaviconStatic(NULL), m_pFaviconBitmap(NULL), m_gdiplusToken(0) {
     for (int i = 0; i < 4; ++i) m_hShortcutButtons[i] = NULL;
@@ -109,27 +110,28 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     lf.lfWeight = FW_BOLD;
     m_hBoldFont = CreateFontIndirectW(&lf);
 
-    // 服务器地址标签（标题）
-    CreateWindowW(L"STATIC", L"当前服务器", WS_CHILD | WS_VISIBLE,
+    // 标题：Current Server
+    CreateWindowW(L"STATIC", L"Current Server", WS_CHILD | WS_VISIBLE,
         10, 10, 380, 20, m_hWnd, NULL, hInst, NULL);
-    m_hServerAddressStatic = CreateWindowW(L"STATIC", L"未知", WS_CHILD | WS_VISIBLE,
+    m_hServerAddressStatic = CreateWindowW(L"STATIC", L"Unknown", WS_CHILD | WS_VISIBLE,
         10, 30, 380, 20, m_hWnd, (HMENU)IDC_SERVER_STATUS, hInst, NULL);
     SendMessageW(m_hServerAddressStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
 
-    CreateWindowW(L"STATIC", L"服务器状态", WS_CHILD | WS_VISIBLE,
+    // 标题：Server Status
+    CreateWindowW(L"STATIC", L"Server Status", WS_CHILD | WS_VISIBLE,
         10, 60, 380, 20, m_hWnd, NULL, hInst, NULL);
     
-    // 服务器状态文字区域（宽度310，高度90，为右侧图标留出空间）
-    m_hServerStatusStatic = CreateWindowW(L"STATIC", L"未知", WS_CHILD | WS_VISIBLE,
+    // 服务器状态文字区域
+    m_hServerStatusStatic = CreateWindowW(L"STATIC", L"Checking...", WS_CHILD | WS_VISIBLE,
         10, 80, 310, 90, m_hWnd, (HMENU)(IDC_SERVER_STATUS + 1), hInst, NULL);
     SendMessageW(m_hServerStatusStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
 
-    // favicon 控件（放在服务器状态文字右侧）
+    // favicon 控件
     m_hFaviconStatic = CreateWindowW(L"STATIC", NULL, WS_CHILD | WS_VISIBLE | SS_BITMAP,
         320, 80, 32, 32, m_hWnd, NULL, hInst, NULL);
     SendMessageW(m_hFaviconStatic, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)NULL);
 
-    // 快捷按钮
+    // 快捷按钮（从配置读取，名称可能为中文，但这里保持原样）
     int btnWidth = (cfg.popupWidth - 50) / 4;
     for (int i = 0; i < 4 && i < (int)cfg.shortcuts.size(); ++i) {
         m_hShortcutButtons[i] = CreateWindowW(
@@ -142,19 +144,25 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         SetWindowSubclass(m_hShortcutButtons[i], ButtonSubclassProc, 0, (DWORD_PTR)this);
     }
 
-    // 启动游戏按钮
-    HWND hLaunch = CreateWindowW(L"BUTTON", L"启动游戏", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+    // Launch Game 按钮
+    HWND hLaunch = CreateWindowW(L"BUTTON", L"Launch Game", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         150, 230, 100, 30, m_hWnd, (HMENU)IDC_LAUNCH_BUTTON, hInst, NULL);
     SendMessageW(hLaunch, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
     SetWindowSubclass(hLaunch, ButtonSubclassProc, 0, (DWORD_PTR)this);
 
-    // 切换服务器按钮
-    m_hSwitchButton = CreateWindowW(L"BUTTON", L"切换服务器", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+    // Switch Server 按钮
+    m_hSwitchButton = CreateWindowW(L"BUTTON", L"Switch Server", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         260, 230, 100, 30, m_hWnd, (HMENU)IDC_SWITCH_BUTTON, hInst, NULL);
     SendMessageW(m_hSwitchButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
     SetWindowSubclass(m_hSwitchButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
 
-    // 退出按钮
+    // Toolbox 按钮
+    m_hToolButton = CreateWindowW(L"BUTTON", L"Toolbox", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+        40, 270, 100, 30, m_hWnd, (HMENU)IDC_TOOL_BUTTON, hInst, NULL);
+    SendMessageW(m_hToolButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+    SetWindowSubclass(m_hToolButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
+
+    // Exit 按钮
     m_hExitButton = CreateWindowW(L"BUTTON", L"×", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         cfg.popupWidth - 30, 0, 30, 30,
         m_hWnd, (HMENU)IDC_EXIT_BUTTON, hInst, NULL);
@@ -236,9 +244,9 @@ void PopupWindow::SetCurrentServerInfo() {
         int idx = m_config.currentServer;
         std::string addr = m_config.servers[idx].host + ":" + std::to_string(m_config.servers[idx].port);
         SetWindowTextW(m_hServerAddressStatic, UTF8ToWide(addr).c_str());
-        SetWindowTextW(m_hServerStatusStatic, L"检测中...");
+        SetWindowTextW(m_hServerStatusStatic, L"Checking...");
     } else {
-        SetWindowTextW(m_hServerAddressStatic, L"无服务器配置");
+        SetWindowTextW(m_hServerAddressStatic, L"No server configured");
         SetWindowTextW(m_hServerStatusStatic, L"");
     }
     InvalidateRect(m_hServerAddressStatic, NULL, TRUE);
@@ -252,14 +260,14 @@ void PopupWindow::UpdateServerStatus(const ServerStatus& status) {
         std::wstring text;
         if (status.online) {
             wchar_t buf[2048];
-            swprintf(buf, 2048, L"在线 - %s\n%d/%d 玩家\n版本: %s\n延迟: %d ms",
+            swprintf(buf, 2048, L"Online - %s\n%d/%d Players\nVersion: %s\nLatency: %d ms",
                 UTF8ToWide(status.motd).c_str(),
                 status.players, status.maxPlayers,
                 UTF8ToWide(status.version).c_str(),
                 status.latency);
             text = buf;
             if (!status.mods.empty()) {
-                text += L"\n模组: ";
+                text += L"\nMods: ";
                 for (size_t i = 0; i < status.mods.size() && i < 3; ++i) {
                     if (i > 0) text += L", ";
                     text += UTF8ToWide(status.mods[i].modid);
@@ -267,7 +275,7 @@ void PopupWindow::UpdateServerStatus(const ServerStatus& status) {
                 if (status.mods.size() > 3) text += L" ...";
             }
         } else {
-            text = L"离线";
+            text = L"Offline";
         }
         SetWindowTextW(m_hServerStatusStatic, text.c_str());
         InvalidateRect(m_hServerStatusStatic, NULL, TRUE);
@@ -307,7 +315,7 @@ bool PopupWindow::IsButton(HWND hWnd) {
         if (hWnd == m_hShortcutButtons[i]) return true;
     }
     HWND hLaunch = GetDlgItem(m_hWnd, IDC_LAUNCH_BUTTON);
-    return (hWnd == hLaunch || hWnd == m_hExitButton || hWnd == m_hSwitchButton);
+    return (hWnd == hLaunch || hWnd == m_hExitButton || hWnd == m_hSwitchButton || hWnd == m_hToolButton);
 }
 
 void PopupWindow::SetHoverButton(HWND hBtn) {
@@ -477,6 +485,9 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 PostQuitMessage(0);
             } else if (id == IDC_SWITCH_BUTTON) {
                 SendMessage(GetParent(hWnd), WM_COMMAND, IDC_SWITCH_BUTTON, 0);
+            } else if (id == IDC_TOOL_BUTTON) {
+                ToolWindow toolWnd;
+                toolWnd.Show(pThis->m_hWnd, (HINSTANCE)GetWindowLongPtr(pThis->m_hWnd, GWLP_HINSTANCE));
             }
             break;
         }

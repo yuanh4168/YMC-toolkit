@@ -13,7 +13,7 @@
 #define IDC_SHORTCUT4     1007
 #define IDC_EXIT_BUTTON   1008
 #define IDC_SWITCH_BUTTON 1009
-// 移除了 IDC_MANAGE_BUTTON 的定义
+#define IDC_TOOL_BUTTON   1011   // 新增
 
 #define WM_UPDATE_HOVER   (WM_USER + 200)
 
@@ -47,7 +47,7 @@ private:
     HFONT m_hBoldFont;
     HWND m_hExitButton;
     HWND m_hSwitchButton;
-    // 移除了 m_hManageButton
+    HWND m_hToolButton;          // 新增
     int m_lastX;
     bool m_autoHideScheduled;
 
