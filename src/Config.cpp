@@ -84,6 +84,23 @@ bool Config::Load(const std::string& filePath) {
             origHeight    = 300;
         }
 
+        // ---- 按钮布局配置（新增）----
+        buttonRects.clear();
+        if (j.contains("buttons") && j["buttons"].is_array()) {
+            for (const auto& btn : j["buttons"]) {
+                ButtonRect br;
+                br.id = btn.value("id", "");
+                br.left = btn.value("left", 0);
+                br.top = btn.value("top", 0);
+                br.right = btn.value("right", 0);
+                br.bottom = btn.value("bottom", 0);
+                br.radius = btn.value("radius", 8);
+                if (!br.id.empty()) {
+                    buttonRects.push_back(br);
+                }
+            }
+        }
+
         // 根据系统 DPI 缩放窗口尺寸和边缘阈值
         HDC hdc = GetDC(NULL);
         int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
@@ -93,6 +110,16 @@ bool Config::Load(const std::string& filePath) {
         popupWidth  = (int)(origWidth * scale);
         popupHeight = (int)(origHeight * scale);
         edgeThreshold = (int)(edgeThreshold * scale);
+
+        // 缩放按钮矩形（如果配置中的坐标是基于 96 DPI 的逻辑像素）
+        // 注意：这里假设配置中的坐标是逻辑像素，需要缩放
+        for (auto& br : buttonRects) {
+            br.left   = (int)(br.left * scale);
+            br.top    = (int)(br.top * scale);
+            br.right  = (int)(br.right * scale);
+            br.bottom = (int)(br.bottom * scale);
+            br.radius = (int)(br.radius * scale);
+        }
 
         return true;
     } catch (const std::exception& e) {

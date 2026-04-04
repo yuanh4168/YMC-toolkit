@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <gdiplus.h>
 #include <string>
+#include <map>
 #include "Config.h"
 #include "ServerPinger.h"
 
@@ -55,6 +56,12 @@ private:
     HWND m_hFaviconStatic;
     Gdiplus::Bitmap* m_pFaviconBitmap;
     ULONG_PTR m_gdiplusToken;
+
+    // GDI+ 字体对象（用于绘制按钮文字）
+    Gdiplus::Font* m_pGdiNormalFont;
+    Gdiplus::Font* m_pGdiBoldFont;
+
+    std::map<HWND, int> m_buttonRadiusMap;
 
     Gdiplus::Bitmap* CreateBitmapFromData(const BYTE* data, size_t len);
     Gdiplus::Bitmap* Base64ToBitmap(const std::string& base64Data);

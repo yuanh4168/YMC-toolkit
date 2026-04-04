@@ -6,12 +6,18 @@
 #include <commctrl.h>
 #include <gdiplus.h>
 #include <wincrypt.h>
+#include <map>
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "comctl32.lib")
 
 using namespace Gdiplus;
+
+// 辅助函数：将 COLORREF 转换为 GDI+ Color（仅用于可能的边框，但本版未使用GDI+绘制按钮）
+static Color ColorFromCOLORREF(COLORREF cr) {
+    return Color(GetRValue(cr), GetGValue(cr), GetBValue(cr));
+}
 
 // ---------- 静态辅助函数 ----------
 std::wstring PopupWindow::UTF8ToWide(const std::string& utf8) {
@@ -33,7 +39,7 @@ std::string PopupWindow::WideToUTF8(const std::wstring& wide) {
 }
 
 // ---------- 按钮子类化 ----------
-LRESULT CALLBACK PopupWindow::ButtonSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+LRESULT CALLBACK PopupWindow::ButtonSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData) {
     PopupWindow* pThis = reinterpret_cast<PopupWindow*>(dwRefData);
     if (!pThis) return DefSubclassProc(hWnd, msg, wParam, lParam);
 
@@ -58,12 +64,15 @@ PopupWindow::PopupWindow()
       m_hBkBrush(NULL), m_hHoverButton(NULL), m_hNormalFont(NULL), m_hBoldFont(NULL),
       m_hExitButton(NULL), m_hSwitchButton(NULL), m_hToolButton(NULL),
       m_lastX(0), m_autoHideScheduled(false),
-      m_hFaviconStatic(NULL), m_pFaviconBitmap(NULL), m_gdiplusToken(0) {
+      m_hFaviconStatic(NULL), m_pFaviconBitmap(NULL), m_gdiplusToken(0),
+      m_pGdiNormalFont(NULL), m_pGdiBoldFont(NULL) {
     for (int i = 0; i < 4; ++i) m_hShortcutButtons[i] = NULL;
 }
 
 PopupWindow::~PopupWindow() {
     if (m_pFaviconBitmap) delete m_pFaviconBitmap;
+    if (m_pGdiNormalFont) delete m_pGdiNormalFont;
+    if (m_pGdiBoldFont) delete m_pGdiBoldFont;
     if (m_hWnd) DestroyWindow(m_hWnd);
     if (m_hBkBrush) DeleteObject(m_hBkBrush);
     if (m_hNormalFont) DeleteObject(m_hNormalFont);
@@ -95,6 +104,7 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         hParent, NULL, hInst, this);
     if (!m_hWnd) return false;
 
+    // 初始化 GDI+
     GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&m_gdiplusToken, &gdiplusStartupInput, NULL);
 
@@ -115,16 +125,16 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     lf.lfWeight = FW_BOLD;
     m_hBoldFont = CreateFontIndirectW(&lf);
 
-    // 缩放后的坐标和尺寸
+    // 创建 GDI+ 字体对象（备用，实际不使用，仅保留）
+    m_pGdiNormalFont = new Font(hdc, m_hNormalFont);
+    m_pGdiBoldFont   = new Font(hdc, m_hBoldFont);
+
+    // 缩放后的坐标和尺寸（标题、状态等固定控件）
     int x10 = (int)(10 * scale);
-    int x20 = (int)(20 * scale);
-    int x30 = (int)(30 * scale);
     int x40 = (int)(40 * scale);
     int x150 = (int)(150 * scale);
     int x260 = (int)(260 * scale);
-    int x310 = (int)(310 * scale);
     int x320 = (int)(320 * scale);
-    int x380 = (int)(380 * scale);
     int width380 = (int)(380 * scale);
     int width310 = (int)(310 * scale);
     int width32 = (int)(32 * scale);
@@ -158,43 +168,104 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         x320, y80, width32, width32, m_hWnd, NULL, hInst, NULL);
     SendMessageW(m_hFaviconStatic, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)NULL);
 
+    // ========== 根据配置创建按钮（普通矩形，无圆角）==========
+    auto getRect = [&](const std::string& id, RECT& rc) -> bool {
+        for (const auto& br : m_config.buttonRects) {
+            if (br.id == id) {
+                rc.left = br.left;
+                rc.top = br.top;
+                rc.right = br.right;
+                rc.bottom = br.bottom;
+                return true;
+            }
+        }
+        return false;
+    };
+
     // 快捷按钮
-    int btnWidth = (cfg.popupWidth - (int)(50 * scale)) / 4;
-    for (int i = 0; i < 4 && i < (int)cfg.shortcuts.size(); ++i) {
+    for (int i = 0; i < 4 && i < (int)m_config.shortcuts.size(); ++i) {
+        std::string id = "shortcut" + std::to_string(i + 1);
+        RECT rc = {0, 0, 0, 0};
+        if (!getRect(id, rc)) {
+            int btnWidth = (m_config.popupWidth - (int)(50 * scale)) / 4;
+            rc.left = x10 + i * (btnWidth + x10);
+            rc.top = y190;
+            rc.right = rc.left + btnWidth;
+            rc.bottom = rc.top + height30;
+        }
         m_hShortcutButtons[i] = CreateWindowW(
             L"BUTTON",
-            UTF8ToWide(cfg.shortcuts[i].name).c_str(),
+            UTF8ToWide(m_config.shortcuts[i].name).c_str(),
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            x10 + i * (btnWidth + x10), y190, btnWidth, height30,
+            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
             m_hWnd, (HMENU)(IDC_SHORTCUT1 + i), hInst, NULL);
         SendMessageW(m_hShortcutButtons[i], WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
         SetWindowSubclass(m_hShortcutButtons[i], ButtonSubclassProc, 0, (DWORD_PTR)this);
     }
 
     // 启动游戏按钮
-    HWND hLaunch = CreateWindowW(L"BUTTON", L"启动游戏", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-        x150, y230, (int)(100 * scale), height30, m_hWnd, (HMENU)IDC_LAUNCH_BUTTON, hInst, NULL);
-    SendMessageW(hLaunch, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-    SetWindowSubclass(hLaunch, ButtonSubclassProc, 0, (DWORD_PTR)this);
+    {
+        RECT rc = {0, 0, 0, 0};
+        if (!getRect("launch", rc)) {
+            rc.left = x150;
+            rc.top = y230;
+            rc.right = rc.left + (int)(100 * scale);
+            rc.bottom = rc.top + height30;
+        }
+        HWND hLaunch = CreateWindowW(L"BUTTON", L"启动游戏", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+            m_hWnd, (HMENU)IDC_LAUNCH_BUTTON, hInst, NULL);
+        SendMessageW(hLaunch, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+        SetWindowSubclass(hLaunch, ButtonSubclassProc, 0, (DWORD_PTR)this);
+    }
 
     // 切换服务器按钮
-    m_hSwitchButton = CreateWindowW(L"BUTTON", L"切换服务器", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-        x260, y230, (int)(100 * scale), height30, m_hWnd, (HMENU)IDC_SWITCH_BUTTON, hInst, NULL);
-    SendMessageW(m_hSwitchButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-    SetWindowSubclass(m_hSwitchButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
+    {
+        RECT rc = {0, 0, 0, 0};
+        if (!getRect("switch", rc)) {
+            rc.left = x260;
+            rc.top = y230;
+            rc.right = rc.left + (int)(100 * scale);
+            rc.bottom = rc.top + height30;
+        }
+        m_hSwitchButton = CreateWindowW(L"BUTTON", L"切换服务器", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+            m_hWnd, (HMENU)IDC_SWITCH_BUTTON, hInst, NULL);
+        SendMessageW(m_hSwitchButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+        SetWindowSubclass(m_hSwitchButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
+    }
 
     // 工具箱按钮
-    m_hToolButton = CreateWindowW(L"BUTTON", L"工具箱", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-        x40, y270, (int)(100 * scale), height30, m_hWnd, (HMENU)IDC_TOOL_BUTTON, hInst, NULL);
-    SendMessageW(m_hToolButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-    SetWindowSubclass(m_hToolButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
+    {
+        RECT rc = {0, 0, 0, 0};
+        if (!getRect("tool", rc)) {
+            rc.left = x40;
+            rc.top = y270;
+            rc.right = rc.left + (int)(100 * scale);
+            rc.bottom = rc.top + height30;
+        }
+        m_hToolButton = CreateWindowW(L"BUTTON", L"工具箱", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+            m_hWnd, (HMENU)IDC_TOOL_BUTTON, hInst, NULL);
+        SendMessageW(m_hToolButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+        SetWindowSubclass(m_hToolButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
+    }
 
     // 退出按钮
-    m_hExitButton = CreateWindowW(L"BUTTON", L"×", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-        cfg.popupWidth - (int)(30 * scale), 0, (int)(30 * scale), (int)(30 * scale),
-        m_hWnd, (HMENU)IDC_EXIT_BUTTON, hInst, NULL);
-    SendMessageW(m_hExitButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-    SetWindowSubclass(m_hExitButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
+    {
+        RECT rc = {0, 0, 0, 0};
+        if (!getRect("exit", rc)) {
+            rc.left = m_config.popupWidth - (int)(30 * scale);
+            rc.top = 0;
+            rc.right = m_config.popupWidth;
+            rc.bottom = (int)(30 * scale);
+        }
+        m_hExitButton = CreateWindowW(L"BUTTON", L"×", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+            m_hWnd, (HMENU)IDC_EXIT_BUTTON, hInst, NULL);
+        SendMessageW(m_hExitButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+        SetWindowSubclass(m_hExitButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
+    }
 
     // 统一字体
     for (HWND hChild = GetWindow(m_hWnd, GW_CHILD); hChild; hChild = GetWindow(hChild, GW_HWNDNEXT)) {
@@ -281,10 +352,6 @@ void PopupWindow::SetCurrentServerInfo() {
         SetWindowTextW(m_hServerAddressStatic, L"未配置服务器");
         SetWindowTextW(m_hServerStatusStatic, L"");
     }
-    InvalidateRect(m_hServerAddressStatic, NULL, TRUE);
-    InvalidateRect(m_hServerStatusStatic, NULL, TRUE);
-    UpdateWindow(m_hServerAddressStatic);
-    UpdateWindow(m_hServerStatusStatic);
 }
 
 void PopupWindow::UpdateServerStatus(const ServerStatus& status) {
@@ -310,8 +377,6 @@ void PopupWindow::UpdateServerStatus(const ServerStatus& status) {
             text = L"离线";
         }
         SetWindowTextW(m_hServerStatusStatic, text.c_str());
-        InvalidateRect(m_hServerStatusStatic, NULL, TRUE);
-        UpdateWindow(m_hServerStatusStatic);
     }
 
     if (m_hFaviconStatic) {
@@ -393,7 +458,7 @@ Gdiplus::Bitmap* PopupWindow::Base64ToBitmap(const std::string& base64Data) {
     return CreateBitmapFromData(decoded.data(), decodedLen);
 }
 
-// ---------- 窗口过程 ----------
+// ---------- 窗口过程（普通矩形按钮，文字居中）----------
 LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     PopupWindow* pThis = nullptr;
     if (msg == WM_NCCREATE) {
@@ -457,47 +522,57 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         case WM_DRAWITEM: {
             LPDRAWITEMSTRUCT lpDIS = (LPDRAWITEMSTRUCT)lParam;
             if (lpDIS->CtlType == ODT_BUTTON) {
+                HDC hdc = lpDIS->hDC;
                 wchar_t text[256];
                 GetWindowTextW(lpDIS->hwndItem, text, 256);
-                HDC hdc = lpDIS->hDC;
-                SetBkMode(hdc, TRANSPARENT);
 
                 bool bHover = (lpDIS->hwndItem == pThis->m_hHoverButton);
                 bool bPressed = (lpDIS->itemState & ODS_SELECTED);
 
+                // 背景颜色
                 COLORREF bgColor;
                 if (lpDIS->hwndItem == pThis->m_hExitButton) {
-                    if (bPressed)
-                        bgColor = RGB(40, 20, 20);
-                    else if (bHover)
-                        bgColor = RGB(60, 30, 30);
-                    else
-                        bgColor = RGB(80, 40, 40);
+                    if (bPressed) bgColor = RGB(40, 20, 20);
+                    else if (bHover) bgColor = RGB(60, 30, 30);
+                    else bgColor = RGB(80, 40, 40);
                 } else {
-                    if (bPressed)
-                        bgColor = RGB(30, 30, 30);
-                    else if (bHover)
-                        bgColor = RGB(40, 40, 40);
-                    else
-                        bgColor = RGB(60, 60, 60);
+                    if (bPressed) bgColor = RGB(30, 30, 30);
+                    else if (bHover) bgColor = RGB(40, 40, 40);
+                    else bgColor = RGB(60, 60, 60);
                 }
 
-                HBRUSH bgBrush = CreateSolidBrush(bgColor);
-                FillRect(hdc, &lpDIS->rcItem, bgBrush);
-                DeleteObject(bgBrush);
+                RECT rcItem = lpDIS->rcItem;
+                int width = rcItem.right - rcItem.left;
+                int height = rcItem.bottom - rcItem.top;
 
-                COLORREF borderColor = bHover ? RGB(200, 200, 200) : RGB(80, 80, 80);
-                HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
-                SelectObject(hdc, pen);
-                SelectObject(hdc, GetStockObject(NULL_BRUSH));
-                Rectangle(hdc, lpDIS->rcItem.left, lpDIS->rcItem.top,
-                          lpDIS->rcItem.right, lpDIS->rcItem.bottom);
-                DeleteObject(pen);
+                // 绘制普通矩形背景
+                HBRUSH hBgBrush = CreateSolidBrush(bgColor);
+                FillRect(hdc, &rcItem, hBgBrush);
+                DeleteObject(hBgBrush);
 
-                COLORREF textColor = bHover ? RGB(255, 220, 100) : RGB(220, 220, 220);
-                SetTextColor(hdc, textColor);
+                // 绘制边框（可选）
+                HPEN hBorderPen = CreatePen(PS_SOLID, 1, bHover ? RGB(200, 200, 200) : RGB(80, 80, 80));
+                HPEN hOldPen = (HPEN)SelectObject(hdc, hBorderPen);
+                HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
+                Rectangle(hdc, rcItem.left, rcItem.top, rcItem.right, rcItem.bottom);
+                SelectObject(hdc, hOldPen);
+                SelectObject(hdc, hOldBrush);
+                DeleteObject(hBorderPen);
+
+                // 绘制文字（手动居中）
+                SetBkMode(hdc, TRANSPARENT);
+                SetTextColor(hdc, bHover ? RGB(255, 220, 100) : RGB(220, 220, 220));
                 HFONT hOldFont = (HFONT)SelectObject(hdc, bHover ? pThis->m_hBoldFont : pThis->m_hNormalFont);
-                DrawTextW(hdc, text, -1, &lpDIS->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+                SIZE textSize;
+                GetTextExtentPoint32W(hdc, text, wcslen(text), &textSize);
+                int x = rcItem.left + (width - textSize.cx) / 2;
+                int y = rcItem.top + (height - textSize.cy) / 2;
+                // 确保文字不超出按钮边界
+                if (x < rcItem.left) x = rcItem.left;
+                if (y < rcItem.top) y = rcItem.top;
+                ExtTextOutW(hdc, x, y, ETO_CLIPPED, &rcItem, text, wcslen(text), NULL);
+
                 SelectObject(hdc, hOldFont);
                 return TRUE;
             }
