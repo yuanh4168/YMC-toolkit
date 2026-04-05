@@ -6,13 +6,12 @@
 static std::mutex g_pingMutex;
 static bool g_pingInProgress = false;
 
-// 自定义消息：配置已更新
 #define WM_CONFIG_UPDATED (WM_USER + 300)
 
 MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false) {}
 MainWindow::~MainWindow() {}
 
-bool MainWindow::Create(HINSTANCE hInst) {
+bool MainWindow::Create(HINSTANCE hInst, HICON hIcon) {
     m_hInst = hInst;
 
     wchar_t modulePath[MAX_PATH];
@@ -34,6 +33,8 @@ bool MainWindow::Create(HINSTANCE hInst) {
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.lpszClassName = L"MainHiddenClass";
+    wc.hIcon = hIcon;
+    wc.hIconSm = hIcon;
     RegisterClassExW(&wc);
 
     m_hWnd = CreateWindowExW(0, L"MainHiddenClass", L"MCTool", WS_OVERLAPPEDWINDOW,
@@ -48,7 +49,6 @@ bool MainWindow::Create(HINSTANCE hInst) {
         m_popup.SetLastX(defaultX);
     }
 
-    // 显示初始服务器地址和“检测中...”
     m_popup.SetCurrentServerInfo();
     StartServerPing();
 
@@ -164,7 +164,6 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 break;
             }
             case WM_CONFIG_UPDATED:
-                // 配置更新（例如从管理对话框保存后）
                 pThis->m_popup.SetCurrentServerInfo();
                 pThis->StartServerPing();
                 break;

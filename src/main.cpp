@@ -1,16 +1,21 @@
 #include <windows.h>
 #include "MainWindow.h"
+#include "resource.h"
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     (void)hPrevInstance; (void)lpCmdLine; (void)nCmdShow;
 
-    // 启用 DPI 感知（避免系统缩放导致模糊）
-    SetProcessDPIAware();   // Windows Vista 及以上
-    // 或者更现代的方式（需要 Windows 10 1607+）：
-    // SetProcessDPIAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+    // 启用 DPI 感知
+    SetProcessDPIAware();
+
+    // 加载图标（如果失败则使用默认应用图标）
+    HICON hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MAIN_ICON));
+    if (!hIcon) {
+        hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    }
 
     MainWindow mainWnd;
-    if (!mainWnd.Create(hInstance)) {
+    if (!mainWnd.Create(hInstance, hIcon)) {
         return 1;
     }
     mainWnd.RunMessageLoop();

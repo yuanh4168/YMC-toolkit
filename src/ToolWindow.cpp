@@ -1,6 +1,7 @@
 #include "ToolWindow.h"
 #include "PopupWindow.h"
 #include "DPIHelper.h"
+#include "resource.h"
 #include <commctrl.h>
 #include <shlobj.h>
 #include <fstream>
@@ -55,6 +56,11 @@ bool ToolWindow::Show(HWND hParent, HINSTANCE hInst) {
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.lpszClassName = L"ToolWindowClass";
+    HICON hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_MAIN_ICON));
+    if (hIcon) {
+        wc.hIcon = hIcon;
+        wc.hIconSm = hIcon;
+    }
     RegisterClassExW(&wc);
 
     m_hWnd = CreateWindowExW(0, L"ToolWindowClass", L"工具箱",
@@ -62,6 +68,11 @@ bool ToolWindow::Show(HWND hParent, HINSTANCE hInst) {
         CW_USEDEFAULT, CW_USEDEFAULT, dialogWidth, dialogHeight,
         hParent, NULL, hInst, this);
     if (!m_hWnd) return false;
+
+    if (hIcon) {
+        SendMessage(m_hWnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+        SendMessage(m_hWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+    }
 
     ShowWindow(m_hWnd, SW_SHOW);
     UpdateWindow(m_hWnd);
@@ -126,7 +137,6 @@ LRESULT CALLBACK ToolWindow::DlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
             int height320 = (int)(320 * scale);
             int height350 = (int)(350 * scale);
 
-            // 创建高质量字体
             HDC hdc = GetDC(hDlg);
             int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
             ReleaseDC(hDlg, hdc);
@@ -138,7 +148,6 @@ LRESULT CALLBACK ToolWindow::DlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
             wcscpy_s(lf.lfFaceName, L"Microsoft YaHei");
             pThis->m_hClearFont = CreateFontIndirectW(&lf);
 
-            // 第一部分：DeepSeek 提示词生成器
             CreateWindowW(L"BUTTON", L"DeepSeek 提示词生成器", 
                 WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
                 x10, y10, widthMinus30, height320, hDlg, NULL, hInst, NULL);
@@ -162,7 +171,6 @@ LRESULT CALLBACK ToolWindow::DlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                 x170, y305, x150, height25, hDlg, (HMENU)ID_EXPORT_BTN, hInst, NULL);
             
-            // 第二部分：项目结构生成器
             CreateWindowW(L"BUTTON", L"项目结构生成器",
                 WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
                 x10, y340, widthMinus30, height350, hDlg, NULL, hInst, NULL);
@@ -187,7 +195,6 @@ LRESULT CALLBACK ToolWindow::DlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                 x20, y645, x140, height25, hDlg, (HMENU)ID_GEN_STRUCT_BTN, hInst, NULL);
             
-            // 为所有子控件设置高质量字体
             for (HWND hChild = GetWindow(hDlg, GW_CHILD); hChild; hChild = GetWindow(hChild, GW_HWNDNEXT)) {
                 SendMessage(hChild, WM_SETFONT, (WPARAM)pThis->m_hClearFont, TRUE);
             }

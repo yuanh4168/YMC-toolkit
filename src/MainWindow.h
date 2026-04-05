@@ -13,7 +13,7 @@ public:
     MainWindow();
     ~MainWindow();
 
-    bool Create(HINSTANCE hInst);
+    bool Create(HINSTANCE hInst, HICON hIcon);
     void RunMessageLoop();
     HWND GetHWND() const { return m_hWnd; }
     const Config& GetConfig() const { return m_config; }
