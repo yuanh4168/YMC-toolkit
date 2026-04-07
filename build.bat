@@ -14,7 +14,7 @@ if errorlevel 1 (
 )
 
 REM 编译主程序（明确指定 include 路径）
-g++ -std=c++17 -Wall -Wextra -g3 -Iinclude -I. src/*.cpp resource.res -o %RELEASE_DIR%\MCTool.exe -lws2_32 -lwininet -lgdi32 -lcomctl32 -lgdiplus -lcrypt32 -lole32 -lstdc++fs -mwindows
+g++ -std=c++17 -Wall -Wextra -g3 -Iinclude -I. src/*.cpp resource.res -o %RELEASE_DIR%\YMCtoolkit.exe -lws2_32 -lwininet -lgdi32 -lcomctl32 -lgdiplus -lcrypt32 -lole32 -lstdc++fs -mwindows
 
 if errorlevel 1 (
     echo Build failed.
