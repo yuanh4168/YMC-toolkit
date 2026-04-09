@@ -57,4 +57,5 @@ private:
     static DWORD WINAPI MonitorThreadProc(LPVOID lpParam);
     void AddLatencyRecord(int latency);
     void ShowStatsWindow();
+    void ShowSettingsWindow();
 };

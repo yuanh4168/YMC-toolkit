@@ -1,6 +1,7 @@
 #include "PopupWindow.h"
 #include "ToolWindow.h"
-#include "StatsWindow.h"          // 新增
+#include "SettingsWindow.h"
+#include "StatsWindow.h"
 #include "DPIHelper.h"
 #include <shellapi.h>
 #include <cstdio>
@@ -60,7 +61,7 @@ PopupWindow::PopupWindow()
     : m_hWnd(NULL), m_hServerAddressStatic(NULL), m_hServerStatusStatic(NULL),
       m_hBkBrush(NULL), m_hHoverButton(NULL), m_hNormalFont(NULL), m_hBoldFont(NULL),
       m_hExitButton(NULL), m_hSwitchButton(NULL), m_hToolButton(NULL), m_hStatsButton(NULL),
-      m_hTimeStatic(NULL), m_lastX(0), m_autoHideScheduled(false),
+      m_hSettingsButton(NULL), m_hTimeStatic(NULL), m_lastX(0), m_autoHideScheduled(false),
       m_hFaviconStatic(NULL), m_pFaviconBitmap(NULL), m_gdiplusToken(0),
       m_pGdiNormalFont(NULL), m_pGdiBoldFont(NULL) {
     for (int i = 0; i < 4; ++i) m_hShortcutButtons[i] = NULL;
@@ -238,6 +239,22 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         SetWindowSubclass(m_hToolButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
     }
 
+    // 设置按钮（新增）
+    {
+        RECT rc = {0,0,0,0};
+        if (!getRect("settings", rc)) {
+            rc.left = x150;
+            rc.top = y270;
+            rc.right = rc.left + (int)(100 * scale);
+            rc.bottom = rc.top + height30;
+        }
+        m_hSettingsButton = CreateWindowW(L"BUTTON", L"设置", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+            m_hWnd, (HMENU)IDC_SETTINGS_BUTTON, hInst, NULL);
+        SendMessageW(m_hSettingsButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+        SetWindowSubclass(m_hSettingsButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
+    }
+
     // 退出按钮
     {
         RECT rc = {0,0,0,0};
@@ -254,11 +271,10 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         SetWindowSubclass(m_hExitButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
     }
 
-    // ========== 新增：统计按钮 ==========
+    // 统计按钮
     {
         RECT rc = {0,0,0,0};
         if (!getRect("stats", rc)) {
-            // 默认放在切换服务器按钮下方或旁边，这里放在 favicon 右侧
             rc.left = x320 + width32 + (int)(10 * scale);
             rc.top = y80 + (int)(10 * scale);
             rc.right = rc.left + (int)(60 * scale);
@@ -271,7 +287,7 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         SetWindowSubclass(m_hStatsButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
     }
 
-    // ========== 新增：时间显示 ==========
+    // 时间显示
     if (m_config.timeDisplay.enabled) {
         RECT rc = {0,0,0,0};
         if (!getRect("time_display", rc)) {
@@ -285,7 +301,7 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
             m_hWnd, (HMENU)IDC_TIME_STATIC, hInst, NULL);
         SendMessageW(m_hTimeStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
         SetWindowSubclass(m_hTimeStatic, ButtonSubclassProc, 0, (DWORD_PTR)this);
-        SetTimer(m_hWnd, 101, 1000, NULL);  // 定时器 ID 101 用于刷新时间
+        SetTimer(m_hWnd, 101, 1000, NULL);
         UpdateTimeDisplay();
     }
 
@@ -444,7 +460,8 @@ bool PopupWindow::IsButton(HWND hWnd) {
         if (hWnd == m_hShortcutButtons[i]) return true;
     }
     HWND hLaunch = GetDlgItem(m_hWnd, IDC_LAUNCH_BUTTON);
-    return (hWnd == hLaunch || hWnd == m_hExitButton || hWnd == m_hSwitchButton || hWnd == m_hToolButton || hWnd == m_hStatsButton);
+    return (hWnd == hLaunch || hWnd == m_hExitButton || hWnd == m_hSwitchButton || 
+            hWnd == m_hToolButton || hWnd == m_hStatsButton || hWnd == m_hSettingsButton);
 }
 
 void PopupWindow::SetHoverButton(HWND hBtn) {
@@ -622,8 +639,9 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 ToolWindow toolWnd;
                 toolWnd.Show(pThis->m_hWnd, (HINSTANCE)GetWindowLongPtr(pThis->m_hWnd, GWLP_HINSTANCE));
             } else if (id == IDC_STATS_BUTTON) {
-                // 通知父窗口（MainWindow）显示统计窗口
                 SendMessage(GetParent(hWnd), WM_COMMAND, IDC_STATS_BUTTON, 0);
+            } else if (id == IDC_SETTINGS_BUTTON) {
+                SendMessage(GetParent(hWnd), WM_COMMAND, IDC_SETTINGS_BUTTON, 0);
             }
             break;
         }

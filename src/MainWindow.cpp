@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "SettingsWindow.h"
 #include "GameLauncher.h"
 #include "ReminderWindow.h"
 #include "StatsWindow.h"
@@ -237,6 +238,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                     pThis->SwitchToNextServer();
                 } else if (LOWORD(wParam) == IDC_STATS_BUTTON) {
                     pThis->ShowStatsWindow();
+                } else if (LOWORD(wParam) == IDC_SETTINGS_BUTTON) {
+                    SettingsWindow dlg(pThis->m_hInst, pThis->m_config, pThis->GetHWND());
+                    dlg.ShowModal();
+                    // 设置窗口关闭后，重新加载配置并刷新界面
+                    pThis->m_popup.SetCurrentServerInfo();
+                    pThis->StartServerPing();
+                    pThis->m_popup.SyncCurrentServerIndex(pThis->m_config.currentServer);
                 }
                 break;
             case WM_UPDATE_SERVER_STATUS:
@@ -256,9 +264,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 pThis->m_popup.SetCurrentServerInfo();
                 pThis->StartServerPing();
                 break;
-            // 在 WndProc 的 WM_DESTROY 中：
             case WM_DESTROY:
-                pThis->m_popup.Hide();   // 立即隐藏弹窗，避免动画延迟
+                pThis->m_popup.Hide();
                 pThis->StopBackgroundMonitoring();
                 PostQuitMessage(0);
                 break;
