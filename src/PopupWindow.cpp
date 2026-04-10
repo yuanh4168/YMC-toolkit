@@ -650,3 +650,21 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
+void PopupWindow::ReloadConfig(const Config& newCfg)
+{
+    m_config = newCfg;  // 更新内部配置副本
+
+    // 如果时间显示启用状态或格式变化，刷新显示
+    if (m_hTimeStatic) {
+        if (m_config.timeDisplay.enabled) {
+            ShowWindow(m_hTimeStatic, SW_SHOW);
+            UpdateTimeDisplay();
+        } else {
+            ShowWindow(m_hTimeStatic, SW_HIDE);
+        }
+    }
+
+    // 注意：弹窗尺寸（popupWidth/Height）变化需要销毁重建才能完全生效，
+    // 为简化，此处仅做配置同步。用户可通过重启程序使新尺寸生效。
+    SetCurrentServerInfo();  // 确保服务器地址显示正确
+}

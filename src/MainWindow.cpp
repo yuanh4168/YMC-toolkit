@@ -253,8 +253,26 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 break;
             }
             case WM_CONFIG_UPDATED:
+                // 重新加载配置（m_config 已被 SettingsWindow 直接修改并保存）
+                pThis->m_popup.ReloadConfig(pThis->m_config);
                 pThis->m_popup.SetCurrentServerInfo();
                 pThis->StartServerPing();
+
+                // 根据新配置重新设置定时器
+                if (pThis->m_config.reminder.enabled) {
+                    KillTimer(pThis->m_hWnd, IDT_REMINDER);
+                    UINT intervalMs = pThis->m_config.reminder.intervalMinutes * 60 * 1000;
+                    SetTimer(pThis->m_hWnd, IDT_REMINDER, intervalMs, NULL);
+                } else {
+                    KillTimer(pThis->m_hWnd, IDT_REMINDER);
+                }
+
+                if (pThis->m_config.serverMonitor.backgroundEnabled) {
+                    pThis->StopBackgroundMonitoring();
+                    pThis->StartBackgroundMonitoring();
+                } else {
+                    pThis->StopBackgroundMonitoring();
+                }
                 break;
             case WM_DESTROY:
                 pThis->m_popup.Hide();

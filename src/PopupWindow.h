@@ -33,6 +33,7 @@ public:
     void UpdateServerStatus(const ServerStatus& status);
     void SetCurrentServerInfo();
     void SyncCurrentServerIndex(int idx);
+    void ReloadConfig(const Config& newCfg);  // 新增：配置重载
     HWND GetHWND() const { return m_hWnd; }
     int GetLastX() const { return m_lastX; }
     void SetLastX(int x) { m_lastX = x; }
