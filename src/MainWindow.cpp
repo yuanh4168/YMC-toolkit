@@ -11,8 +11,8 @@ static bool g_pingInProgress = false;
 
 #define WM_CONFIG_UPDATED (WM_USER + 300)
 
-MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false), m_backgroundMonitoring(false), m_hMonitorThread(NULL) {}
-MainWindow::~MainWindow() { StopBackgroundMonitoring(); }
+MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false), m_backgroundMonitoring(false), m_hMonitorThread(NULL), m_pSettingsWnd(nullptr) {}
+MainWindow::~MainWindow() { StopBackgroundMonitoring(); delete m_pSettingsWnd; }
 
 bool MainWindow::Create(HINSTANCE hInst, HICON hIcon) {
     m_hInst = hInst;
@@ -54,13 +54,11 @@ bool MainWindow::Create(HINSTANCE hInst, HICON hIcon) {
 
     SetTimer(m_hWnd, IDT_MOUSE_CHECK, 200, NULL);
 
-    // 启动休息提醒定时器
     if (m_config.reminder.enabled) {
         UINT intervalMs = m_config.reminder.intervalMinutes * 60 * 1000;
         SetTimer(m_hWnd, IDT_REMINDER, intervalMs, NULL);
     }
 
-    // 启动后台监控
     if (m_config.serverMonitor.backgroundEnabled) {
         StartBackgroundMonitoring();
     }
@@ -131,7 +129,6 @@ void MainWindow::SwitchToNextServer() {
     UpdateConfigAndSave();
     m_popup.SyncCurrentServerIndex(m_config.currentServer);
     StartServerPing();
-    // 切换服务器时清空历史数据
     {
         std::lock_guard<std::mutex> lock(m_historyMutex);
         m_latencyHistory.clear();
@@ -148,7 +145,6 @@ void MainWindow::UpdateConfigAndSave() {
     m_config.Save(configPath);
 }
 
-// 后台监控线程
 DWORD WINAPI MainWindow::MonitorThreadProc(LPVOID lpParam) {
     MainWindow* pThis = (MainWindow*)lpParam;
     Config& cfg = pThis->m_config;
@@ -177,7 +173,6 @@ void MainWindow::StopBackgroundMonitoring() {
     if (!m_backgroundMonitoring) return;
     m_backgroundMonitoring = false;
     if (m_hMonitorThread) {
-        // 不等待线程结束，直接关闭句柄
         CloseHandle(m_hMonitorThread);
         m_hMonitorThread = NULL;
     }
@@ -189,7 +184,6 @@ void MainWindow::AddLatencyRecord(int latency) {
     rec.timestamp = time(NULL);
     rec.latency = latency;
     m_latencyHistory.push_back(rec);
-    // 限制最大数量
     while ((int)m_latencyHistory.size() > m_config.serverMonitor.maxDataPoints) {
         m_latencyHistory.erase(m_latencyHistory.begin());
     }
@@ -239,12 +233,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 } else if (LOWORD(wParam) == IDC_STATS_BUTTON) {
                     pThis->ShowStatsWindow();
                 } else if (LOWORD(wParam) == IDC_SETTINGS_BUTTON) {
-                    SettingsWindow dlg(pThis->m_hInst, pThis->m_config, pThis->GetHWND());
-                    dlg.ShowModal();
-                    // 设置窗口关闭后，重新加载配置并刷新界面
-                    pThis->m_popup.SetCurrentServerInfo();
-                    pThis->StartServerPing();
-                    pThis->m_popup.SyncCurrentServerIndex(pThis->m_config.currentServer);
+                    if (!pThis->m_pSettingsWnd) {
+                        pThis->m_pSettingsWnd = new SettingsWindow(pThis->m_hInst, pThis->m_config, pThis->GetHWND());
+                    }
+                    pThis->m_pSettingsWnd->Show();
                 }
                 break;
             case WM_UPDATE_SERVER_STATUS:
