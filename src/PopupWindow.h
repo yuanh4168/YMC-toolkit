@@ -33,7 +33,7 @@ public:
     void UpdateServerStatus(const ServerStatus& status);
     void SetCurrentServerInfo();
     void SyncCurrentServerIndex(int idx);
-    void ReloadConfig(const Config& newCfg);  // 新增：配置重载
+    void ReloadConfig(const Config& newCfg);
     HWND GetHWND() const { return m_hWnd; }
     int GetLastX() const { return m_lastX; }
     void SetLastX(int x) { m_lastX = x; }
@@ -43,6 +43,8 @@ public:
 
 private:
     HWND m_hWnd;
+    HWND m_hParent;          // 父窗口句柄（保存以便重建）
+    HINSTANCE m_hInst;       // 实例句柄（保存以便重建）
     HWND m_hServerAddressStatic;
     HWND m_hServerStatusStatic;
     HWND m_hShortcutButtons[4];
@@ -55,7 +57,7 @@ private:
     HWND m_hSwitchButton;
     HWND m_hToolButton;
     HWND m_hStatsButton;
-    HWND m_hSettingsButton;      // 设置按钮
+    HWND m_hSettingsButton;
     HWND m_hTimeStatic;
     int m_lastX;
     bool m_autoHideScheduled;
@@ -83,4 +85,6 @@ private:
     void AdhereToTop();
     void UpdateLastX();
     void UpdateTimeDisplay();
+
+    void Recreate();   // 新增：重建窗口
 };

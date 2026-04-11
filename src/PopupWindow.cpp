@@ -79,6 +79,8 @@ PopupWindow::~PopupWindow() {
 }
 
 bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
+    m_hParent = hParent;
+    m_hInst = hInst;
     m_config = cfg;
     double scale = GetDPIScale();
 
@@ -96,7 +98,7 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
         L"PopupClass", NULL,
         WS_POPUP,
-        0, 0, cfg.popupWidth, cfg.popupHeight,
+        0, 0, m_config.popupWidth, m_config.popupHeight,
         hParent, NULL, hInst, this);
     if (!m_hWnd) return false;
 
@@ -121,191 +123,139 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     m_pGdiNormalFont = new Font(hdc, m_hNormalFont);
     m_pGdiBoldFont   = new Font(hdc, m_hBoldFont);
 
-    int x10 = (int)(10 * scale);
-    int x40 = (int)(40 * scale);
-    int x150 = (int)(150 * scale);
-    int x260 = (int)(260 * scale);
-    int x320 = (int)(320 * scale);
-    int width380 = (int)(380 * scale);
-    int width310 = (int)(310 * scale);
-    int width32 = (int)(64 * scale);
-    int height20 = (int)(20 * scale);
-    int height30 = (int)(30 * scale);
-    int height90 = (int)(90 * scale);
-    int y10 = (int)(10 * scale);
-    int y30 = (int)(30 * scale);
-    int y60 = (int)(60 * scale);
-    int y80 = (int)(80 * scale);
-    int y190 = (int)(190 * scale);
-    int y230 = (int)(230 * scale);
-    int y270 = (int)(270 * scale);
-
-    CreateWindowW(L"STATIC", L"当前服务器", WS_CHILD | WS_VISIBLE,
-        x10, y10, width380, height20, m_hWnd, NULL, hInst, NULL);
-    m_hServerAddressStatic = CreateWindowW(L"STATIC", L"未知", WS_CHILD | WS_VISIBLE,
-        x10, y30, width380, height20, m_hWnd, (HMENU)IDC_SERVER_STATUS, hInst, NULL);
-    SendMessageW(m_hServerAddressStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-
-    CreateWindowW(L"STATIC", L"服务器状态", WS_CHILD | WS_VISIBLE,
-        x10, y60, width380, height20, m_hWnd, NULL, hInst, NULL);
-    m_hServerStatusStatic = CreateWindowW(L"STATIC", L"检测中...", WS_CHILD | WS_VISIBLE,
-        x10, y80, width310, height90, m_hWnd, (HMENU)(IDC_SERVER_STATUS + 1), hInst, NULL);
-    SendMessageW(m_hServerStatusStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-
-    m_hFaviconStatic = CreateWindowW(L"STATIC", NULL, WS_CHILD | WS_VISIBLE | SS_BITMAP,
-        x320, y80, width32, width32, m_hWnd, NULL, hInst, NULL);
-    SendMessageW(m_hFaviconStatic, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)NULL);
-
-    // ========== 根据配置创建按钮 ==========
-    auto getRect = [&](const std::string& id, RECT& rc) -> bool {
+    // 辅助函数：从配置中获取按钮矩形（逻辑像素），若不存在则返回 false
+    auto getButtonRect = [&](const std::string& id, RECT& rect) -> bool {
         for (const auto& br : m_config.buttonRects) {
             if (br.id == id) {
-                rc.left = br.left;
-                rc.top = br.top;
-                rc.right = br.right;
-                rc.bottom = br.bottom;
+                rect.left = br.left;
+                rect.top = br.top;
+                rect.right = br.right;
+                rect.bottom = br.bottom;
                 return true;
             }
         }
         return false;
     };
 
-    // 快捷按钮
-    for (int i = 0; i < 4 && i < (int)m_config.shortcuts.size(); ++i) {
+    // 通用按钮创建函数，优先使用配置坐标，否则使用默认坐标（默认坐标需由调用者提供）
+    auto createButton = [&](const std::string& id, const std::wstring& text, int cmdId, 
+                            const RECT& defaultRect, DWORD extraStyle = 0) -> HWND {
+        RECT rect = defaultRect;
+        if (getButtonRect(id, rect)) {
+            // 使用配置坐标（逻辑像素），不进行任何适配检查
+        }
+        // 应用 DPI 缩放
+        int x = (int)(rect.left * scale);
+        int y = (int)(rect.top * scale);
+        int w = (int)((rect.right - rect.left) * scale);
+        int h = (int)((rect.bottom - rect.top) * scale);
+        HWND hBtn = CreateWindowW(L"BUTTON", text.c_str(),
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | extraStyle,
+            x, y, w, h,
+            m_hWnd, (HMENU)cmdId, hInst, NULL);
+        if (hBtn) {
+            SendMessageW(hBtn, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+            SetWindowSubclass(hBtn, ButtonSubclassProc, 0, (DWORD_PTR)this);
+        }
+        return hBtn;
+    };
+
+    // 静态文本创建函数（同样支持配置坐标，但静态文本通常不需要，为了完整也支持）
+    auto createStatic = [&](const std::string& id, const std::wstring& text, int cmdId,
+                            const RECT& defaultRect) -> HWND {
+        RECT rect = defaultRect;
+        if (getButtonRect(id, rect)) {
+            // 使用配置坐标
+        }
+        int x = (int)(rect.left * scale);
+        int y = (int)(rect.top * scale);
+        int w = (int)((rect.right - rect.left) * scale);
+        int h = (int)((rect.bottom - rect.top) * scale);
+        HWND hStatic = CreateWindowW(L"STATIC", text.c_str(),
+            WS_CHILD | WS_VISIBLE,
+            x, y, w, h,
+            m_hWnd, (HMENU)cmdId, hInst, NULL);
+        if (hStatic) {
+            SendMessageW(hStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
+        }
+        return hStatic;
+    };
+
+    // ========== 创建控件，优先使用 config 中的坐标 ==========
+
+    // 1. "当前服务器" 标签（默认位置：左上角）
+    RECT defaultLabelRect = {10, 10, m_config.popupWidth - 10, 30};
+    createStatic("label_current_server", L"当前服务器", 0, defaultLabelRect);
+
+    // 2. 服务器地址（默认位置：标签下方）
+    RECT defaultAddrRect = {10, 30, m_config.popupWidth - 10, 50};
+    m_hServerAddressStatic = createStatic("server_address", L"未知", IDC_SERVER_STATUS, defaultAddrRect);
+
+    // 3. "服务器状态" 标签
+    RECT defaultStatusLabelRect = {10, 60, m_config.popupWidth - 10, 80};
+    createStatic("label_server_status", L"服务器状态", 0, defaultStatusLabelRect);
+
+    // 4. 服务器状态文本区域（默认位置：标签下方，预留高度 90）
+    RECT defaultStatusRect = {10, 80, m_config.popupWidth - 10 - 64 - 10, 170};  // 右侧留出图标空间
+    m_hServerStatusStatic = createStatic("server_status_text", L"检测中...", IDC_SERVER_STATUS + 1, defaultStatusRect);
+
+    // 5. Favicon 图标（默认位置：右上角状态区域右侧）
+    RECT defaultFaviconRect = {m_config.popupWidth - 64 - 10, 80, m_config.popupWidth - 10, 80 + 64};
+    if (getButtonRect("favicon", defaultFaviconRect)) {
+        // 如果配置中有 favicon 矩形，则使用
+    }
+    int fx = (int)(defaultFaviconRect.left * scale);
+    int fy = (int)(defaultFaviconRect.top * scale);
+    int fw = (int)((defaultFaviconRect.right - defaultFaviconRect.left) * scale);
+    int fh = (int)((defaultFaviconRect.bottom - defaultFaviconRect.top) * scale);
+    m_hFaviconStatic = CreateWindowW(L"STATIC", NULL, WS_CHILD | WS_VISIBLE | SS_BITMAP,
+        fx, fy, fw, fh, m_hWnd, NULL, hInst, NULL);
+
+    // 6. 统计按钮（默认位置：Favicon 下方）
+    RECT defaultStatsRect = {m_config.popupWidth - 60 - 10, 80 + 64 + 10, m_config.popupWidth - 10, 80 + 64 + 10 + 30};
+    m_hStatsButton = createButton("stats", L"统计", IDC_STATS_BUTTON, defaultStatsRect);
+
+    // 7. 快捷按钮（最多4个，默认均匀分布，但优先使用配置中的 shortcut1~shortcut4）
+    int shortcutCount = (int)m_config.shortcuts.size();
+    if (shortcutCount > 4) shortcutCount = 4;
+    int defaultShortcutWidth = (m_config.popupWidth - 50) / 4;  // 间距 10*5 = 50
+    for (int i = 0; i < shortcutCount; ++i) {
         std::string id = "shortcut" + std::to_string(i + 1);
-        RECT rc = {0,0,0,0};
-        if (!getRect(id, rc)) {
-            int btnWidth = (m_config.popupWidth - (int)(50 * scale)) / 4;
-            rc.left = x10 + i * (btnWidth + x10);
-            rc.top = y190;
-            rc.right = rc.left + btnWidth;
-            rc.bottom = rc.top + height30;
-        }
-        m_hShortcutButtons[i] = CreateWindowW(
-            L"BUTTON",
-            UTF8ToWide(m_config.shortcuts[i].name).c_str(),
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-            m_hWnd, (HMENU)(IDC_SHORTCUT1 + i), hInst, NULL);
-        SendMessageW(m_hShortcutButtons[i], WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-        SetWindowSubclass(m_hShortcutButtons[i], ButtonSubclassProc, 0, (DWORD_PTR)this);
+        RECT defaultRect = {10 + i * (defaultShortcutWidth + 10), 190,
+                            10 + (i+1) * defaultShortcutWidth + i * 10, 190 + 30};
+        m_hShortcutButtons[i] = createButton(id, UTF8ToWide(m_config.shortcuts[i].name),
+                                             IDC_SHORTCUT1 + i, defaultRect);
     }
 
-    // 启动游戏按钮
-    {
-        RECT rc = {0,0,0,0};
-        if (!getRect("launch", rc)) {
-            rc.left = x150;
-            rc.top = y230;
-            rc.right = rc.left + (int)(100 * scale);
-            rc.bottom = rc.top + height30;
-        }
-        HWND hLaunch = CreateWindowW(L"BUTTON", L"启动游戏", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-            m_hWnd, (HMENU)IDC_LAUNCH_BUTTON, hInst, NULL);
-        SendMessageW(hLaunch, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-        SetWindowSubclass(hLaunch, ButtonSubclassProc, 0, (DWORD_PTR)this);
-    }
+    // 8. 启动游戏按钮
+    RECT defaultLaunchRect = {150, 230, 250, 260};
+    HWND hLaunch = createButton("launch", L"启动游戏", IDC_LAUNCH_BUTTON, defaultLaunchRect);
 
-    // 切换服务器按钮
-    {
-        RECT rc = {0,0,0,0};
-        if (!getRect("switch", rc)) {
-            rc.left = x260;
-            rc.top = y230;
-            rc.right = rc.left + (int)(100 * scale);
-            rc.bottom = rc.top + height30;
-        }
-        m_hSwitchButton = CreateWindowW(L"BUTTON", L"切换服务器", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-            m_hWnd, (HMENU)IDC_SWITCH_BUTTON, hInst, NULL);
-        SendMessageW(m_hSwitchButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-        SetWindowSubclass(m_hSwitchButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
-    }
+    // 9. 切换服务器按钮
+    RECT defaultSwitchRect = {260, 230, 360, 260};
+    m_hSwitchButton = createButton("switch", L"切换服务器", IDC_SWITCH_BUTTON, defaultSwitchRect);
 
-    // 工具箱按钮
-    {
-        RECT rc = {0,0,0,0};
-        if (!getRect("tool", rc)) {
-            rc.left = x40;
-            rc.top = y270;
-            rc.right = rc.left + (int)(100 * scale);
-            rc.bottom = rc.top + height30;
-        }
-        m_hToolButton = CreateWindowW(L"BUTTON", L"工具箱", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-            m_hWnd, (HMENU)IDC_TOOL_BUTTON, hInst, NULL);
-        SendMessageW(m_hToolButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-        SetWindowSubclass(m_hToolButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
-    }
+    // 10. 工具箱按钮
+    RECT defaultToolRect = {40, 270, 140, 300};
+    m_hToolButton = createButton("tool", L"工具箱", IDC_TOOL_BUTTON, defaultToolRect);
 
-    // 设置按钮（新增）
-    {
-        RECT rc = {0,0,0,0};
-        if (!getRect("settings", rc)) {
-            rc.left = x150;
-            rc.top = y270;
-            rc.right = rc.left + (int)(100 * scale);
-            rc.bottom = rc.top + height30;
-        }
-        m_hSettingsButton = CreateWindowW(L"BUTTON", L"设置", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-            m_hWnd, (HMENU)IDC_SETTINGS_BUTTON, hInst, NULL);
-        SendMessageW(m_hSettingsButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-        SetWindowSubclass(m_hSettingsButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
-    }
+    // 11. 设置按钮
+    RECT defaultSettingsRect = {150, 270, 250, 300};
+    m_hSettingsButton = createButton("settings", L"设置", IDC_SETTINGS_BUTTON, defaultSettingsRect);
 
-    // 退出按钮
-    {
-        RECT rc = {0,0,0,0};
-        if (!getRect("exit", rc)) {
-            rc.left = m_config.popupWidth - (int)(30 * scale);
-            rc.top = 0;
-            rc.right = m_config.popupWidth;
-            rc.bottom = (int)(30 * scale);
-        }
-        m_hExitButton = CreateWindowW(L"BUTTON", L"×", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-            m_hWnd, (HMENU)IDC_EXIT_BUTTON, hInst, NULL);
-        SendMessageW(m_hExitButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-        SetWindowSubclass(m_hExitButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
-    }
+    // 12. 退出按钮（右上角）
+    RECT defaultExitRect = {m_config.popupWidth - 30, 0, m_config.popupWidth, 30};
+    m_hExitButton = createButton("exit", L"×", IDC_EXIT_BUTTON, defaultExitRect);
 
-    // 统计按钮
-    {
-        RECT rc = {0,0,0,0};
-        if (!getRect("stats", rc)) {
-            rc.left = x320 + width32 + (int)(10 * scale);
-            rc.top = y80 + (int)(10 * scale);
-            rc.right = rc.left + (int)(60 * scale);
-            rc.bottom = rc.top + height30;
-        }
-        m_hStatsButton = CreateWindowW(L"BUTTON", L"统计", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-            m_hWnd, (HMENU)IDC_STATS_BUTTON, hInst, NULL);
-        SendMessageW(m_hStatsButton, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-        SetWindowSubclass(m_hStatsButton, ButtonSubclassProc, 0, (DWORD_PTR)this);
-    }
-
-    // 时间显示
+    // 13. 时间显示（默认位置：退出按钮左侧）
     if (m_config.timeDisplay.enabled) {
-        RECT rc = {0,0,0,0};
-        if (!getRect("time_display", rc)) {
-            rc.left = m_config.popupWidth - (int)(100 * scale);
-            rc.top = (int)(5 * scale);
-            rc.right = rc.left + (int)(80 * scale);
-            rc.bottom = rc.top + (int)(25 * scale);
-        }
-        m_hTimeStatic = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_CENTER,
-            rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-            m_hWnd, (HMENU)IDC_TIME_STATIC, hInst, NULL);
-        SendMessageW(m_hTimeStatic, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
-        SetWindowSubclass(m_hTimeStatic, ButtonSubclassProc, 0, (DWORD_PTR)this);
+        RECT defaultTimeRect = {m_config.popupWidth - 100 - 30, 5, m_config.popupWidth - 30, 30};
+        m_hTimeStatic = createStatic("time_display", L"", IDC_TIME_STATIC, defaultTimeRect);
         SetTimer(m_hWnd, 101, 1000, NULL);
         UpdateTimeDisplay();
     }
 
-    // 统一字体
+    // 统一字体（再次确保所有子控件都使用了字体）
     for (HWND hChild = GetWindow(m_hWnd, GW_CHILD); hChild; hChild = GetWindow(hChild, GW_HWNDNEXT)) {
         SendMessage(hChild, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
     }
@@ -650,11 +600,18 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
-void PopupWindow::ReloadConfig(const Config& newCfg)
-{
-    m_config = newCfg;  // 更新内部配置副本
 
-    // 如果时间显示启用状态或格式变化，刷新显示
+void PopupWindow::ReloadConfig(const Config& newCfg) {
+    bool sizeChanged = (newCfg.popupWidth != m_config.popupWidth || newCfg.popupHeight != m_config.popupHeight);
+    m_config = newCfg;
+
+    if (sizeChanged) {
+        // 尺寸变化，需要重建窗口
+        Recreate();
+        return;
+    }
+
+    // 尺寸未变化，只需更新一些动态内容
     if (m_hTimeStatic) {
         if (m_config.timeDisplay.enabled) {
             ShowWindow(m_hTimeStatic, SW_SHOW);
@@ -663,8 +620,21 @@ void PopupWindow::ReloadConfig(const Config& newCfg)
             ShowWindow(m_hTimeStatic, SW_HIDE);
         }
     }
+    SetCurrentServerInfo();
+}
 
-    // 注意：弹窗尺寸（popupWidth/Height）变化需要销毁重建才能完全生效，
-    // 为简化，此处仅做配置同步。用户可通过重启程序使新尺寸生效。
-    SetCurrentServerInfo();  // 确保服务器地址显示正确
+void PopupWindow::Recreate() {
+    if (!m_hWnd) return;
+    // 保存当前位置
+    UpdateLastX();
+    // 销毁当前窗口
+    DestroyWindow(m_hWnd);
+    m_hWnd = NULL;
+    // 重新创建
+    Create(m_hParent, m_hInst, m_config);
+    // 恢复位置（如果之前可见则显示）
+    if (IsWindowVisible(m_hWnd)) {
+        SetWindowPos(m_hWnd, HWND_TOPMOST, m_lastX, 0, m_config.popupWidth, m_config.popupHeight, SWP_NOZORDER);
+        ShowWindow(m_hWnd, SW_SHOW);
+    }
 }

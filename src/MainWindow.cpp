@@ -3,6 +3,7 @@
 #include "GameLauncher.h"
 #include "ReminderWindow.h"
 #include "StatsWindow.h"
+#include "ServerPinger.h"
 #include <thread>
 #include <mutex>
 

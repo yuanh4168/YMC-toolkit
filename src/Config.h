@@ -41,23 +41,22 @@ struct ServerMonitor {
 
 struct Config {
     std::vector<ServerInfo> servers;
-    int currentServer;
+    int currentServer = 0;
     std::string newsURL;
     std::vector<Shortcut> shortcuts;
-    int edgeThreshold;
-    int popupWidth;
-    int popupHeight;
+    int edgeThreshold = 10;
+    int popupWidth = 400;
+    int popupHeight = 300;
     std::vector<ButtonRect> buttonRects;
     std::string gameCommand;
     std::vector<std::string> gameArgs;
 
-    // 新增
     TimeDisplay timeDisplay;
     Reminder reminder;
     ServerMonitor serverMonitor;
 
     bool Load(const std::string& filePath);
-    bool Save(const std::string& filePath);
-    
-    static nlohmann::json CreateDefaultJson();
+    bool Save(const std::string& filePath) const;   // 改为 const，不修改对象
+    static nlohmann::json ToJson(const Config& cfg);
+    static Config FromJson(const nlohmann::json& j);
 };

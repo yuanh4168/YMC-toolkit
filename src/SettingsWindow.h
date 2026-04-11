@@ -8,9 +8,13 @@ public:
     ~SettingsWindow();
     void Show();
 
-    // 公共成员，方便窗口过程访问
+private:
     Config& m_config;
     HWND m_hDlg;
-    HINSTANCE m_hInst;      // 原为 private，现改为 public
-    HWND m_hParent;         // 原为 private，现改为 public
+    HINSTANCE m_hInst;
+    HWND m_hParent;
+    std::string m_configPath;
+
+    static LRESULT CALLBACK DlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    void OnOK();
 };
