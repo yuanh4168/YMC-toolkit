@@ -11,6 +11,7 @@ static std::mutex g_pingMutex;
 static bool g_pingInProgress = false;
 
 #define WM_CONFIG_UPDATED (WM_USER + 300)
+#define WM_CLEAR_HISTORY  (WM_USER + 500)
 
 MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false), m_backgroundMonitoring(false), m_hMonitorThread(NULL), m_pSettingsWnd(nullptr) {}
 MainWindow::~MainWindow() { StopBackgroundMonitoring(); delete m_pSettingsWnd; }
@@ -275,6 +276,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                     pThis->StopBackgroundMonitoring();
                 }
                 break;
+            case WM_CLEAR_HISTORY:
+            {
+                std::lock_guard<std::mutex> lock(pThis->m_historyMutex);
+                pThis->m_latencyHistory.clear();
+                break;
+            }
             case WM_DESTROY:
                 pThis->m_popup.Hide();
                 pThis->StopBackgroundMonitoring();

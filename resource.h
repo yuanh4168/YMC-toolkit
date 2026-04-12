@@ -60,4 +60,47 @@
 
 #define IDC_ABOUT_TEXT           2090
 
+// 设置窗口控件 ID 范围 2000-2100
+#define IDC_SETTINGS_TAB         2001
+#define IDC_SERVER_LIST          2010
+#define IDC_ADD_SERVER           2011
+#define IDC_EDIT_SERVER          2012
+#define IDC_DEL_SERVER           2013
+#define IDC_MOVE_UP_SERVER       2014
+#define IDC_MOVE_DOWN_SERVER     2015
+#define IDC_SET_DEFAULT_SERVER   2016
+#define IDC_TEST_SERVER          2017
+
+#define IDC_SHORTCUT_LIST        2020
+#define IDC_ADD_SHORTCUT         2021
+#define IDC_EDIT_SHORTCUT        2022
+#define IDC_DEL_SHORTCUT         2023
+
+#define IDC_POPUP_WIDTH          2030
+#define IDC_POPUP_HEIGHT         2031
+#define IDC_EDGE_THRESHOLD       2032
+
+#define IDC_TIME_ENABLED         2040
+#define IDC_TIME_FORMAT          2041
+
+#define IDC_REMINDER_ENABLED     2050
+#define IDC_REMINDER_INTERVAL    2051
+#define IDC_REMINDER_MESSAGE     2052
+#define IDC_TEST_REMINDER        2053
+
+#define IDC_MONITOR_ENABLED      2060
+#define IDC_MONITOR_INTERVAL     2061
+#define IDC_MONITOR_MAXPOINTS    2062
+#define IDC_CLEAR_HISTORY        2063
+
+#define IDC_GAME_COMMAND         2070
+#define IDC_BROWSE_GAME          2071
+
+#define IDC_STARTUP_ENABLED      2080
+#define IDC_RESET_CONFIG         2081
+#define IDC_BACKUP_CONFIG        2082
+#define IDC_RESTORE_CONFIG       2083
+
+#define IDC_ABOUT_TEXT           2090
+
 #endif
