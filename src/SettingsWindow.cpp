@@ -161,12 +161,13 @@ void SettingsWindow::InitControls()
 {
     double scale = GetDPIScale();
     int margin = (int)(15 * scale);
+    int groupMargin = (int)(20 * scale);  // 组之间的间距
     int groupHeight = (int)(25 * scale);
     int btnWidth = (int)(100 * scale);
     int btnHeight = (int)(28 * scale);
     int labelW = (int)(120 * scale);
     int editW = (int)(150 * scale);
-    int lineH = (int)(30 * scale);
+    int lineH = (int)(32 * scale);       // 行高增加
     int x = margin;
     int y = margin;
 
@@ -186,12 +187,12 @@ void SettingsWindow::InitControls()
 
     // ========== 服务器管理区域 ==========
     CreateWindowW(L"BUTTON", L"服务器管理", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        x, y, (int)(700 * scale), (int)(280 * scale), m_hDlg, NULL, m_hInst, NULL);
+        x, y, (int)(700 * scale), (int)(350 * scale), m_hDlg, NULL, m_hInst, NULL);
     y += groupHeight + margin;
 
     m_hServerList = CreateWindowW(L"LISTBOX", NULL,
         WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOTIFY,
-        x + margin, y, (int)(400 * scale), (int)(200 * scale),
+        x + margin, y, (int)(400 * scale), (int)(270 * scale),
         m_hDlg, (HMENU)IDC_SERVER_LIST, m_hInst, NULL);
     int btnX = x + margin + (int)(400 * scale) + margin;
     int btnY = y;
@@ -215,16 +216,16 @@ void SettingsWindow::InitControls()
     btnY += btnHeight + margin;
     m_hTestServerBtn = CreateWindowW(L"BUTTON", L"测试连接", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         btnX, btnY, btnWidth, btnHeight, m_hDlg, (HMENU)IDC_TEST_SERVER, m_hInst, NULL);
-    y += (int)(210 * scale) + margin;
+    y += (int)(280 * scale) + groupMargin;
 
     // ========== 快捷方式管理区域 ==========
     CreateWindowW(L"BUTTON", L"快捷方式管理", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        x, y, (int)(700 * scale), (int)(160 * scale), m_hDlg, NULL, m_hInst, NULL);
+        x, y, (int)(700 * scale), (int)(200 * scale), m_hDlg, NULL, m_hInst, NULL);
     y += groupHeight + margin;
 
     m_hShortcutList = CreateWindowW(L"LISTBOX", NULL,
         WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOTIFY,
-        x + margin, y, (int)(400 * scale), (int)(100 * scale),
+        x + margin, y, (int)(400 * scale), (int)(120 * scale),
         m_hDlg, (HMENU)IDC_SHORTCUT_LIST, m_hInst, NULL);
     btnX = x + margin + (int)(400 * scale) + margin;
     btnY = y;
@@ -236,11 +237,11 @@ void SettingsWindow::InitControls()
     btnY += btnHeight + margin;
     m_hDelShortcutBtn = CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         btnX, btnY, btnWidth, btnHeight, m_hDlg, (HMENU)IDC_DEL_SHORTCUT, m_hInst, NULL);
-    y += (int)(110 * scale) + margin;
+    y += (int)(130 * scale) + groupMargin;
 
     // ========== 界面设置区域 ==========
     CreateWindowW(L"BUTTON", L"界面设置", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        x, y, (int)(700 * scale), (int)(130 * scale), m_hDlg, NULL, m_hInst, NULL);
+        x, y, (int)(700 * scale), (int)(160 * scale), m_hDlg, NULL, m_hInst, NULL);
     y += groupHeight + margin;
 
     CreateWindowW(L"STATIC", L"弹窗宽度:", WS_CHILD | WS_VISIBLE,
@@ -257,11 +258,11 @@ void SettingsWindow::InitControls()
         x + margin, y, labelW, lineH, m_hDlg, NULL, m_hInst, NULL);
     m_hEdgeThreshold = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER,
         x + margin + labelW + margin, y, editW, lineH, m_hDlg, (HMENU)IDC_EDGE_THRESHOLD, m_hInst, NULL);
-    y += lineH + margin;
+    y += lineH + groupMargin;
 
     // ========== 时间显示区域 ==========
     CreateWindowW(L"BUTTON", L"时间显示", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        x, y, (int)(700 * scale), (int)(100 * scale), m_hDlg, NULL, m_hInst, NULL);
+        x, y, (int)(700 * scale), (int)(130 * scale), m_hDlg, NULL, m_hInst, NULL);
     y += groupHeight + margin;
 
     m_hTimeEnabled = CreateWindowW(L"BUTTON", L"启用时间显示", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
@@ -273,11 +274,11 @@ void SettingsWindow::InitControls()
         x + margin + labelW + margin, y, editW, lineH * 5, m_hDlg, (HMENU)IDC_TIME_FORMAT, m_hInst, NULL);
     SendMessageW(m_hTimeFormat, CB_ADDSTRING, 0, (LPARAM)L"HH:mm:ss");
     SendMessageW(m_hTimeFormat, CB_ADDSTRING, 0, (LPARAM)L"HH:mm");
-    y += lineH + margin;
+    y += lineH + groupMargin;
 
     // ========== 休息提醒区域 ==========
     CreateWindowW(L"BUTTON", L"休息提醒", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        x, y, (int)(700 * scale), (int)(160 * scale), m_hDlg, NULL, m_hInst, NULL);
+        x, y, (int)(700 * scale), (int)(200 * scale), m_hDlg, NULL, m_hInst, NULL);
     y += groupHeight + margin;
 
     m_hReminderEnabled = CreateWindowW(L"BUTTON", L"启用休息提醒", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
@@ -295,11 +296,11 @@ void SettingsWindow::InitControls()
     y += lineH + margin;
     m_hTestReminderBtn = CreateWindowW(L"BUTTON", L"测试提醒", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         x + margin, y, btnWidth, btnHeight, m_hDlg, (HMENU)IDC_TEST_REMINDER, m_hInst, NULL);
-    y += btnHeight + margin;
+    y += btnHeight + groupMargin;
 
     // ========== 后台监控区域 ==========
     CreateWindowW(L"BUTTON", L"后台监控", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        x, y, (int)(700 * scale), (int)(160 * scale), m_hDlg, NULL, m_hInst, NULL);
+        x, y, (int)(700 * scale), (int)(200 * scale), m_hDlg, NULL, m_hInst, NULL);
     y += groupHeight + margin;
 
     m_hMonitorEnabled = CreateWindowW(L"BUTTON", L"启用后台监控", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
@@ -317,11 +318,11 @@ void SettingsWindow::InitControls()
     y += lineH + margin;
     m_hClearHistoryBtn = CreateWindowW(L"BUTTON", L"清除历史数据", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         x + margin, y, btnWidth, btnHeight, m_hDlg, (HMENU)IDC_CLEAR_HISTORY, m_hInst, NULL);
-    y += btnHeight + margin;
+    y += btnHeight + groupMargin;
 
     // ========== 游戏启动区域 ==========
     CreateWindowW(L"BUTTON", L"游戏启动", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        x, y, (int)(700 * scale), (int)(100 * scale), m_hDlg, NULL, m_hInst, NULL);
+        x, y, (int)(700 * scale), (int)(130 * scale), m_hDlg, NULL, m_hInst, NULL);
     y += groupHeight + margin;
 
     CreateWindowW(L"STATIC", L"启动命令:", WS_CHILD | WS_VISIBLE,
@@ -331,11 +332,11 @@ void SettingsWindow::InitControls()
     m_hBrowseGameBtn = CreateWindowW(L"BUTTON", L"浏览...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         x + margin + labelW + margin + (int)(300 * scale) + margin, y, btnWidth, btnHeight,
         m_hDlg, (HMENU)IDC_BROWSE_GAME, m_hInst, NULL);
-    y += lineH + margin;
+    y += lineH + groupMargin;
 
     // ========== 其他设置区域 ==========
     CreateWindowW(L"BUTTON", L"其他", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        x, y, (int)(700 * scale), (int)(160 * scale), m_hDlg, NULL, m_hInst, NULL);
+        x, y, (int)(700 * scale), (int)(200 * scale), m_hDlg, NULL, m_hInst, NULL);
     y += groupHeight + margin;
 
     m_hStartupEnabled = CreateWindowW(L"BUTTON", L"开机启动", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
@@ -352,8 +353,8 @@ void SettingsWindow::InitControls()
     y += btnHeight + margin;
     m_hAboutText = CreateWindowW(L"STATIC", L"YMC-toolkit v1.0\n一个 Minecraft 服务器状态监控工具",
         WS_CHILD | WS_VISIBLE,
-        x + margin, y, (int)(400 * scale), (int)(50 * scale), m_hDlg, (HMENU)IDC_ABOUT_TEXT, m_hInst, NULL);
-    y += (int)(60 * scale);
+        x + margin, y, (int)(400 * scale), (int)(60 * scale), m_hDlg, (HMENU)IDC_ABOUT_TEXT, m_hInst, NULL);
+    y += (int)(70 * scale);
 
     // 为所有子控件设置字体
     EnumChildWindows(m_hDlg, [](HWND hWnd, LPARAM lParam) -> BOOL {
