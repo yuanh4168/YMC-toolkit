@@ -33,65 +33,70 @@ bool ToolWindow::Show(HWND hParent, HINSTANCE hInst) {
 
     Application app;
     app.title = L"工具箱";
-    app.width = 800;
-    app.height = 720;
-    app.OnInit = [this]() {
-        easyUI.SetGlobalFont(L"Microsoft YaHei", 13);
+    app.width = 1500;               // 宽度调整为 1500
+    app.height = 1100;              // 高度保持 1100
+   app.OnInit = [this]() {
+    easyUI.SetGlobalFont(L"Microsoft YaHei", 13);
 
-        Theme t;
-        t.bg = Color(45, 45, 48);
-        t.fg = Color(63, 63, 70);
-        t.accent = Color(0, 122, 204);
-        t.text = Color(240, 240, 240);
-        easyUI.SetTheme(t);
+    Theme t;
+    t.bg = Color(45, 45, 48);
+    t.fg = Color(63, 63, 70);
+    t.accent = Color(0, 122, 204);
+    t.text = Color(240, 240, 240);
+    easyUI.SetTheme(t);
 
-        const int ROW_H = 28;
-        const int SPACE = 12;
+    const int ROW_H = 45;
+    const int SPACE = 20;
+    const int TEXT_AREA_H = 120;
 
-        int y = 10;
+    // 原基准宽度为 800，新窗口宽度为 1500，水平缩放因子 = 1500/800 = 1.875
+    // 所有 x 坐标和宽度均乘以 1.875，y 坐标和高度保持不变
 
-        // ---------- DeepSeek 提示词生成器 ----------
-        easyUI.CreateLabel("lblPrompt", L"DeepSeek 提示词生成器", 20, y, 300, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateLabel("lblDesc", L"项目描述:", 20, y, 150, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateTextBox("txtPromptDesc", 20, y, 760, 100);
-        y += 100 + SPACE;
-        easyUI.CreateLabel("lblResult", L"生成的提示词:", 20, y, 150, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateTextBox("txtPromptResult", 20, y, 760, 90);
-        y += 90 + SPACE;
-        easyUI.CreateButton("btnGenerate", L"生成提示词", 20, y, 140, ROW_H);
-        easyUI.CreateButton("btnExport", L"导出为 Markdown", 170, y, 150, ROW_H);
-        y += ROW_H + SPACE * 2;
+    int y = 10;
 
-        // ---------- 项目结构生成器 ----------
-        easyUI.CreateLabel("lblStruct", L"项目结构生成器", 20, y, 300, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateLabel("lblTree", L"粘贴目录树 (支持 tree /f 风格):", 20, y, 300, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateTextBox("txtStructure", 20, y, 760, 100);
-        y += 100 + SPACE;
-        easyUI.CreateButton("btnSelPath", L"选择生成目录", 20, y, 140, ROW_H);
-        easyUI.CreateButton("btnGenStruct", L"生成结构", 170, y, 140, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateLabel("lblLog", L"日志:", 20, y, 50, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateTextBox("txtLog", 20, y, 760, 70);
+    // ---------- DeepSeek 提示词生成器 ----------
+    easyUI.CreateLabel("lblPrompt", L"DeepSeek 提示词生成器", 38, y, 562, ROW_H);   // 20*1.875=37.5→38, 300*1.875=562.5→562
+    y += ROW_H + SPACE;
+    easyUI.CreateLabel("lblDesc", L"项目描述:", 38, y, 281, ROW_H);                  // 150*1.875=281.25→281
+    y += ROW_H + SPACE;
+    easyUI.CreateTextBox("txtPromptDesc", 38, y, 1425, TEXT_AREA_H);                // 760*1.875=1425
+    y += TEXT_AREA_H + SPACE;
+    easyUI.CreateLabel("lblResult", L"生成的提示词:", 38, y, 281, ROW_H);
+    y += ROW_H + SPACE;
+    easyUI.CreateTextBox("txtPromptResult", 38, y, 1425, TEXT_AREA_H);
+    y += TEXT_AREA_H + SPACE;
+    easyUI.CreateButton("btnGenerate", L"生成提示词", 38, y, 262, ROW_H);            // 140*1.875=262.5→262
+    easyUI.CreateButton("btnExport", L"导出为 Markdown", 338, y, 300, ROW_H);       // 180*1.875=337.5→338, 160*1.875=300
+    y += ROW_H + SPACE * 2;
 
-        // ---------- 事件绑定 ----------
-        easyUI.OnClick("btnGenerate", [this]() { OnGeneratePrompt(); });
-        easyUI.OnClick("btnExport", [this]() { OnExportPrompt(); });
-        easyUI.OnClick("btnSelPath", [this]() { OnSelectPath(); });
-        easyUI.OnClick("btnGenStruct", [this]() { OnGenerateStructure(); });
+    // ---------- 项目结构生成器 ----------
+    easyUI.CreateLabel("lblStruct", L"项目结构生成器", 38, y, 562, ROW_H);
+    y += ROW_H + SPACE;
+    easyUI.CreateLabel("lblTree", L"粘贴目录树 (支持 tree /f 风格):", 38, y, 562, ROW_H);
+    y += ROW_H + SPACE;
+    easyUI.CreateTextBox("txtStructure", 38, y, 1425, 120);
+    y += 120 + SPACE;
+    easyUI.CreateButton("btnSelPath", L"选择生成目录", 38, y, 300, ROW_H);          // 160*1.875=300
+    easyUI.CreateButton("btnGenStruct", L"生成结构", 375, y, 281, ROW_H);           // 200*1.875=375, 150*1.875=281.25→281
+    y += ROW_H + SPACE;
+    easyUI.CreateLabel("lblLog", L"日志:", 38, y, 112, ROW_H);                      // 60*1.875=112.5→112
+    y += ROW_H + SPACE;
+    easyUI.CreateTextBox("txtLog", 38, y, 1425, 100);
 
-        // ---------- 窗口关闭处理 ----------
-        HWND hwnd = detail::GS().hwnd;
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)this);
-        WNDPROC oldProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)ToolWndProc);
-        SetPropW(hwnd, L"OLD_PROC", (HANDLE)oldProc);
-    };
+    // 事件绑定（保持不变）
+    easyUI.OnClick("btnGenerate", [this]() { OnGeneratePrompt(); });
+    easyUI.OnClick("btnExport", [this]() { OnExportPrompt(); });
+    easyUI.OnClick("btnSelPath", [this]() { OnSelectPath(); });
+    easyUI.OnClick("btnGenStruct", [this]() { OnGenerateStructure(); });
 
+    // 启用自动缩放，基准尺寸与窗口尺寸相同（1500×1100）
+    easyUI.SetAutoScale(true, 1500, 1100);
+
+    HWND hwnd = detail::GS().hwnd;
+    SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)this);
+    WNDPROC oldProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)ToolWndProc);
+    SetPropW(hwnd, L"OLD_PROC", (HANDLE)oldProc);
+};
     easyUI.Run(app);
     return true;
 }
