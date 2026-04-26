@@ -408,8 +408,8 @@ void SettingsWindow::Show() {
 
     Application app;
     app.title = L"设置";
-    app.width = 1000;
-    app.height = 1300;               // 窗口高度增加到1300
+    app.width = 1500;
+    app.height = 1800;               // 窗口高度增加到1300
     app.OnInit = [this]() {
         using namespace eui;
         easyUI.SetGlobalFont(L"Microsoft YaHei", 13);
@@ -547,7 +547,7 @@ void SettingsWindow::Show() {
         });
 
         // 基准尺寸与窗口尺寸一致
-        easyUI.SetAutoScale(true, 1000, 1300);
+        easyUI.SetAutoScale(true, 1500, 1800);
 
         HWND hwnd = detail::GS().hwnd;
         SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)this);
