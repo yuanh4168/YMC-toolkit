@@ -19,7 +19,7 @@
 
 using namespace eui;
 
-// 输入对话框（保持不变，但坐标依赖 DPI 缩放，无需修改）
+// ========== 通用输入对话框 ==========
 struct InputDialogData {
     std::string title, label1, label2, value1, value2;
     bool confirmed;
@@ -159,6 +159,238 @@ static bool ShowInputDialog(HWND hParent, const std::string& title,
     return false;
 }
 
+// ========== 服务器管理窗口（动态创建）==========
+static Config* g_pServerConfig = nullptr;
+static HWND g_hServerList = nullptr;
+
+static LRESULT CALLBACK ServerManageWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_CREATE: {
+            g_hServerList = CreateWindowW(L"LISTBOX", NULL,
+                WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOTIFY,
+                10, 10, 250, 200, hWnd, (HMENU)1001, GetModuleHandle(NULL), NULL);
+            CreateWindowW(L"BUTTON", L"添加", WS_CHILD | WS_VISIBLE, 270, 10, 80, 25, hWnd, (HMENU)1002, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"编辑", WS_CHILD | WS_VISIBLE, 270, 40, 80, 25, hWnd, (HMENU)1003, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE, 270, 70, 80, 25, hWnd, (HMENU)1004, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"上移", WS_CHILD | WS_VISIBLE, 270, 100, 80, 25, hWnd, (HMENU)1005, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"下移", WS_CHILD | WS_VISIBLE, 270, 130, 80, 25, hWnd, (HMENU)1006, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"设为默认", WS_CHILD | WS_VISIBLE, 270, 160, 80, 25, hWnd, (HMENU)1007, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"测试连接", WS_CHILD | WS_VISIBLE, 270, 190, 80, 25, hWnd, (HMENU)1008, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"关闭", WS_CHILD | WS_VISIBLE, 270, 230, 80, 25, hWnd, (HMENU)IDOK, NULL, NULL);
+
+            HFONT hFont = CreateFontW(-MulDiv(12, GetDeviceCaps(GetDC(hWnd), LOGPIXELSX), 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei");
+            SendMessage(g_hServerList, WM_SETFONT, (WPARAM)hFont, TRUE);
+            for (HWND hChild = GetWindow(hWnd, GW_CHILD); hChild; hChild = GetWindow(hChild, GW_HWNDNEXT)) {
+                SendMessage(hChild, WM_SETFONT, (WPARAM)hFont, TRUE);
+            }
+
+            for (size_t i = 0; i < g_pServerConfig->servers.size(); ++i) {
+                std::wstring item = PopupWindow::UTF8ToWide(g_pServerConfig->servers[i].host + ":" + std::to_string(g_pServerConfig->servers[i].port));
+                SendMessageW(g_hServerList, LB_ADDSTRING, 0, (LPARAM)item.c_str());
+            }
+            if (g_pServerConfig->currentServer >= 0 && g_pServerConfig->currentServer < (int)g_pServerConfig->servers.size()) {
+                SendMessageW(g_hServerList, LB_SETCURSEL, g_pServerConfig->currentServer, 0);
+            }
+            return 0;
+        }
+        case WM_COMMAND: {
+            int id = LOWORD(wParam);
+            int sel = SendMessageW(g_hServerList, LB_GETCURSEL, 0, 0);
+            if (id == 1002) {
+                std::string host = "localhost", port = "25565";
+                if (ShowInputDialog(hWnd, "添加服务器", "主机名/IP", "端口", host, port)) {
+                    g_pServerConfig->servers.push_back({host, std::stoi(port)});
+                    std::wstring item = PopupWindow::UTF8ToWide(host + ":" + port);
+                    SendMessageW(g_hServerList, LB_ADDSTRING, 0, (LPARAM)item.c_str());
+                    SendMessageW(g_hServerList, LB_SETCURSEL, g_pServerConfig->servers.size() - 1, 0);
+                }
+            } else if (id == 1003 && sel != LB_ERR) {
+                ServerInfo& sv = g_pServerConfig->servers[sel];
+                std::string host = sv.host, port = std::to_string(sv.port);
+                if (ShowInputDialog(hWnd, "编辑服务器", "主机名/IP", "端口", host, port)) {
+                    sv.host = host; sv.port = std::stoi(port);
+                    std::wstring item = PopupWindow::UTF8ToWide(host + ":" + port);
+                    SendMessageW(g_hServerList, LB_DELETESTRING, sel, 0);
+                    SendMessageW(g_hServerList, LB_INSERTSTRING, sel, (LPARAM)item.c_str());
+                    SendMessageW(g_hServerList, LB_SETCURSEL, sel, 0);
+                }
+            } else if (id == 1004 && sel != LB_ERR) {
+                g_pServerConfig->servers.erase(g_pServerConfig->servers.begin() + sel);
+                SendMessageW(g_hServerList, LB_DELETESTRING, sel, 0);
+                if (g_pServerConfig->currentServer >= (int)g_pServerConfig->servers.size())
+                    g_pServerConfig->currentServer = (int)g_pServerConfig->servers.size() - 1;
+                if (g_pServerConfig->currentServer >= 0)
+                    SendMessageW(g_hServerList, LB_SETCURSEL, g_pServerConfig->currentServer, 0);
+            } else if (id == 1005 && sel > 0) {
+                std::swap(g_pServerConfig->servers[sel], g_pServerConfig->servers[sel - 1]);
+                if (g_pServerConfig->currentServer == sel) g_pServerConfig->currentServer = sel - 1;
+                SendMessageW(g_hServerList, LB_RESETCONTENT, 0, 0);
+                for (size_t i = 0; i < g_pServerConfig->servers.size(); ++i) {
+                    std::wstring item = PopupWindow::UTF8ToWide(g_pServerConfig->servers[i].host + ":" + std::to_string(g_pServerConfig->servers[i].port));
+                    SendMessageW(g_hServerList, LB_ADDSTRING, 0, (LPARAM)item.c_str());
+                }
+                SendMessageW(g_hServerList, LB_SETCURSEL, sel - 1, 0);
+            } else if (id == 1006 && sel != LB_ERR && sel < (int)g_pServerConfig->servers.size() - 1) {
+                std::swap(g_pServerConfig->servers[sel], g_pServerConfig->servers[sel + 1]);
+                if (g_pServerConfig->currentServer == sel) g_pServerConfig->currentServer = sel + 1;
+                SendMessageW(g_hServerList, LB_RESETCONTENT, 0, 0);
+                for (size_t i = 0; i < g_pServerConfig->servers.size(); ++i) {
+                    std::wstring item = PopupWindow::UTF8ToWide(g_pServerConfig->servers[i].host + ":" + std::to_string(g_pServerConfig->servers[i].port));
+                    SendMessageW(g_hServerList, LB_ADDSTRING, 0, (LPARAM)item.c_str());
+                }
+                SendMessageW(g_hServerList, LB_SETCURSEL, sel + 1, 0);
+            } else if (id == 1007 && sel != LB_ERR) {
+                g_pServerConfig->currentServer = sel;
+            } else if (id == 1008 && sel != LB_ERR) {
+                ServerInfo& sv = g_pServerConfig->servers[sel];
+                ServerStatus status;
+                if (PingServer(sv.host, sv.port, status)) {
+                    wchar_t msg[1024];
+                    swprintf(msg, 1024, L"在线\n玩家: %d/%d\n版本: %s\n延迟: %d ms",
+                        status.players, status.maxPlayers, PopupWindow::UTF8ToWide(status.version).c_str(), status.latency);
+                    MessageBoxW(hWnd, msg, L"测试结果", MB_OK);
+                } else {
+                    MessageBoxW(hWnd, L"离线或无法连接", L"测试结果", MB_OK);
+                }
+            } else if (id == IDOK || id == IDCANCEL) {
+                DestroyWindow(hWnd);
+            }
+            return 0;
+        }
+        case WM_CLOSE:
+            DestroyWindow(hWnd);
+            return 0;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+    }
+    return DefWindowProc(hWnd, msg, wParam, lParam);
+}
+
+static void ShowServerManageWindow(HWND hParent, Config& cfg) {
+    g_pServerConfig = &cfg;
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = ServerManageWndProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.lpszClassName = L"ServerManageWndClass";
+    RegisterClassExW(&wc);
+
+    int width = 400, height = 300;
+    int x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
+    int y = (GetSystemMetrics(SM_CYSCREEN) - height) / 2;
+    HWND hWnd = CreateWindowExW(0, L"ServerManageWndClass", L"服务器管理",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        x, y, width, height, hParent, NULL, GetModuleHandle(NULL), NULL);
+    if (!hWnd) return;
+
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+}
+
+// ========== 快捷方式管理窗口（动态创建）==========
+static Config* g_pShortcutConfig = nullptr;
+static HWND g_hShortcutList = nullptr;
+
+static LRESULT CALLBACK ShortcutManageWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_CREATE: {
+            g_hShortcutList = CreateWindowW(L"LISTBOX", NULL,
+                WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOTIFY,
+                10, 10, 250, 200, hWnd, (HMENU)2001, GetModuleHandle(NULL), NULL);
+            CreateWindowW(L"BUTTON", L"添加", WS_CHILD | WS_VISIBLE, 270, 10, 80, 25, hWnd, (HMENU)2002, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"编辑", WS_CHILD | WS_VISIBLE, 270, 40, 80, 25, hWnd, (HMENU)2003, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE, 270, 70, 80, 25, hWnd, (HMENU)2004, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"关闭", WS_CHILD | WS_VISIBLE, 270, 230, 80, 25, hWnd, (HMENU)IDOK, NULL, NULL);
+
+            HFONT hFont = CreateFontW(-MulDiv(12, GetDeviceCaps(GetDC(hWnd), LOGPIXELSX), 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei");
+            SendMessage(g_hShortcutList, WM_SETFONT, (WPARAM)hFont, TRUE);
+            for (HWND hChild = GetWindow(hWnd, GW_CHILD); hChild; hChild = GetWindow(hChild, GW_HWNDNEXT)) {
+                SendMessage(hChild, WM_SETFONT, (WPARAM)hFont, TRUE);
+            }
+
+            for (size_t i = 0; i < g_pShortcutConfig->shortcuts.size(); ++i) {
+                std::wstring item = PopupWindow::UTF8ToWide(g_pShortcutConfig->shortcuts[i].name + " -> " + g_pShortcutConfig->shortcuts[i].url);
+                SendMessageW(g_hShortcutList, LB_ADDSTRING, 0, (LPARAM)item.c_str());
+            }
+            return 0;
+        }
+        case WM_COMMAND: {
+            int id = LOWORD(wParam);
+            int sel = SendMessageW(g_hShortcutList, LB_GETCURSEL, 0, 0);
+            if (id == 2002) {
+                std::string name = "新快捷方式", url = "https://";
+                if (ShowInputDialog(hWnd, "添加快捷方式", "名称", "URL", name, url)) {
+                    g_pShortcutConfig->shortcuts.push_back({name, url});
+                    std::wstring item = PopupWindow::UTF8ToWide(name + " -> " + url);
+                    SendMessageW(g_hShortcutList, LB_ADDSTRING, 0, (LPARAM)item.c_str());
+                    SendMessageW(g_hShortcutList, LB_SETCURSEL, g_pShortcutConfig->shortcuts.size() - 1, 0);
+                }
+            } else if (id == 2003 && sel != LB_ERR) {
+                Shortcut& sc = g_pShortcutConfig->shortcuts[sel];
+                std::string name = sc.name, url = sc.url;
+                if (ShowInputDialog(hWnd, "编辑快捷方式", "名称", "URL", name, url)) {
+                    sc.name = name; sc.url = url;
+                    std::wstring item = PopupWindow::UTF8ToWide(name + " -> " + url);
+                    SendMessageW(g_hShortcutList, LB_DELETESTRING, sel, 0);
+                    SendMessageW(g_hShortcutList, LB_INSERTSTRING, sel, (LPARAM)item.c_str());
+                    SendMessageW(g_hShortcutList, LB_SETCURSEL, sel, 0);
+                }
+            } else if (id == 2004 && sel != LB_ERR) {
+                g_pShortcutConfig->shortcuts.erase(g_pShortcutConfig->shortcuts.begin() + sel);
+                SendMessageW(g_hShortcutList, LB_DELETESTRING, sel, 0);
+                if (sel >= (int)g_pShortcutConfig->shortcuts.size()) sel = (int)g_pShortcutConfig->shortcuts.size() - 1;
+                if (sel >= 0) SendMessageW(g_hShortcutList, LB_SETCURSEL, sel, 0);
+            } else if (id == IDOK || id == IDCANCEL) {
+                DestroyWindow(hWnd);
+            }
+            return 0;
+        }
+        case WM_CLOSE:
+            DestroyWindow(hWnd);
+            return 0;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+    }
+    return DefWindowProc(hWnd, msg, wParam, lParam);
+}
+
+static void ShowShortcutManageWindow(HWND hParent, Config& cfg) {
+    g_pShortcutConfig = &cfg;
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = ShortcutManageWndProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.lpszClassName = L"ShortcutManageWndClass";
+    RegisterClassExW(&wc);
+
+    int width = 400, height = 300;
+    int x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
+    int y = (GetSystemMetrics(SM_CYSCREEN) - height) / 2;
+    HWND hWnd = CreateWindowExW(0, L"ShortcutManageWndClass", L"快捷方式管理",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        x, y, width, height, hParent, NULL, GetModuleHandle(NULL), NULL);
+    if (!hWnd) return;
+
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+}
+
 // ===== SettingsWindow 实现 =====
 SettingsWindow::SettingsWindow(HINSTANCE hInst, Config& cfg, HWND hParent)
     : m_config(cfg), m_hInst(hInst), m_hParent(hParent) {}
@@ -176,8 +408,8 @@ void SettingsWindow::Show() {
 
     Application app;
     app.title = L"设置";
-    app.width = 1600;               // 窗口宽度
-    app.height = 1400;              // 窗口高度
+    app.width = 1000;
+    app.height = 1300;               // 窗口高度增加到1300
     app.OnInit = [this]() {
         using namespace eui;
         easyUI.SetGlobalFont(L"Microsoft YaHei", 13);
@@ -188,41 +420,29 @@ void SettingsWindow::Show() {
         t.text = Color(240, 240, 240);
         easyUI.SetTheme(t);
 
-        const int ROW_H = 45;        // 行高不变
-        const int SPACE = 20;        // 垂直间距不变
+        const int ROW_H = 45;
+        const int SPACE = 20;
+        int y = 20;   // 重新计算垂直位置
 
-        int y = 10;
-
-        // ---------- 服务器管理 ----------
-        easyUI.CreateLabel("lblServers", L"服务器管理", 40, y, 400, ROW_H);       // x*2, w*2
+        // ---- 服务器管理 ----
+        easyUI.CreateLabel("lblServers", L"服务器管理", 40, y, 400, ROW_H);
         y += ROW_H + SPACE;
-        easyUI.CreateComboBox("cmbServers", 40, y, 900, ROW_H);                  // x*2, w*2
-        easyUI.CreateButton("btnAddSrv", L"添加", 960, y, 160, ROW_H);           // x*2, w*2
-        easyUI.CreateButton("btnEditSrv", L"编辑", 1140, y, 140, ROW_H);         // x*2, w*2
-        easyUI.CreateButton("btnDelSrv", L"删除", 1300, y, 140, ROW_H);          // x*2, w*2
-        y += ROW_H + SPACE;
-        easyUI.CreateButton("btnUpSrv", L"上移", 960, y, 140, ROW_H);
-        easyUI.CreateButton("btnDownSrv", L"下移", 1120, y, 140, ROW_H);
-        easyUI.CreateButton("btnDefSrv", L"设为默认", 1280, y, 180, ROW_H);
-        easyUI.CreateButton("btnTestSrv", L"测试连接", 1480, y, 180, ROW_H);
+        easyUI.CreateButton("btnManageServers", L"管理服务器列表", 40, y, 200, ROW_H);
         y += ROW_H + SPACE * 2;
 
-        // ---------- 快捷方式管理 ----------
+        // ---- 快捷方式管理 ----
         easyUI.CreateLabel("lblShortcuts", L"快捷方式管理", 40, y, 400, ROW_H);
         y += ROW_H + SPACE;
-        easyUI.CreateComboBox("cmbShortcuts", 40, y, 900, ROW_H);
-        easyUI.CreateButton("btnAddShc", L"添加", 960, y, 160, ROW_H);
-        easyUI.CreateButton("btnEditShc", L"编辑", 1140, y, 140, ROW_H);
-        easyUI.CreateButton("btnDelShc", L"删除", 1300, y, 140, ROW_H);
+        easyUI.CreateButton("btnManageShortcuts", L"管理快捷方式列表", 40, y, 200, ROW_H);
         y += ROW_H + SPACE * 2;
 
-        // ---------- 界面设置 ----------
+        // ---- 界面设置 ----
         easyUI.CreateLabel("lblUI", L"界面设置", 40, y, 400, ROW_H);
         y += ROW_H + SPACE;
-        easyUI.CreateLabel("lblPW", L"弹窗宽度:", 40, y, 200, ROW_H);            // x*2, w*2
-        easyUI.CreateTextBox("txtPopWidth", 260, y, 240, ROW_H);                // x*2, w*2
-        easyUI.CreateLabel("lblPH", L"弹窗高度:", 560, y, 200, ROW_H);          // x*2, w*2
-        easyUI.CreateTextBox("txtPopHeight", 780, y, 240, ROW_H);               // x*2, w*2
+        easyUI.CreateLabel("lblPW", L"弹窗宽度:", 40, y, 200, ROW_H);
+        easyUI.CreateTextBox("txtPopWidth", 260, y, 240, ROW_H);
+        easyUI.CreateLabel("lblPH", L"弹窗高度:", 560, y, 200, ROW_H);
+        easyUI.CreateTextBox("txtPopHeight", 780, y, 240, ROW_H);
         y += ROW_H + SPACE;
         easyUI.CreateLabel("lblEdge", L"边缘阈值:", 40, y, 200, ROW_H);
         easyUI.CreateTextBox("txtEdge", 260, y, 240, ROW_H);
@@ -230,7 +450,7 @@ void SettingsWindow::Show() {
         easyUI.SetLabelColor("lblEdgeNote", Color(180, 180, 180));
         y += ROW_H + SPACE * 2;
 
-        // ---------- 时间显示 ----------
+        // ---- 时间显示 ----
         easyUI.CreateLabel("lblTime", L"时间显示", 40, y, 400, ROW_H);
         y += ROW_H + SPACE;
         easyUI.CreateButton("chkTimeEn", L"[ ] 启用时间显示", 40, y, 360, ROW_H);
@@ -238,7 +458,7 @@ void SettingsWindow::Show() {
         easyUI.CreateComboBox("cmbTimeFmt", 580, y, 300, ROW_H);
         y += ROW_H + SPACE * 2;
 
-        // ---------- 休息提醒 ----------
+        // ---- 休息提醒 ----
         easyUI.CreateLabel("lblRem", L"休息提醒", 40, y, 400, ROW_H);
         y += ROW_H + SPACE;
         easyUI.CreateButton("chkRemEn", L"[ ] 启用休息提醒", 40, y, 360, ROW_H);
@@ -251,7 +471,7 @@ void SettingsWindow::Show() {
         easyUI.CreateButton("btnTestRem", L"测试提醒", 40, y, 240, ROW_H);
         y += ROW_H + SPACE * 2;
 
-        // ---------- 后台监控 ----------
+        // ---- 后台监控 ----
         easyUI.CreateLabel("lblMon", L"后台监控", 40, y, 400, ROW_H);
         y += ROW_H + SPACE;
         easyUI.CreateButton("chkMonEn", L"[ ] 启用后台监控", 40, y, 360, ROW_H);
@@ -264,7 +484,7 @@ void SettingsWindow::Show() {
         easyUI.CreateButton("btnClearHist", L"清除历史", 40, y, 240, ROW_H);
         y += ROW_H + SPACE * 2;
 
-        // ---------- 游戏启动 ----------
+        // ---- 游戏启动 ----
         easyUI.CreateLabel("lblGame", L"游戏启动", 40, y, 400, ROW_H);
         y += ROW_H + SPACE;
         easyUI.CreateLabel("lblCmd", L"命令行:", 40, y, 160, ROW_H);
@@ -272,7 +492,7 @@ void SettingsWindow::Show() {
         easyUI.CreateButton("btnBrowse", L"浏览", 1320, y, 160, ROW_H);
         y += ROW_H + SPACE * 2;
 
-        // ---------- 其他 ----------
+        // ---- 其他 ----
         easyUI.CreateLabel("lblOther", L"其他", 40, y, 400, ROW_H);
         y += ROW_H + SPACE;
         easyUI.CreateButton("chkStartup", L"[ ] 开机启动", 40, y, 280, ROW_H);
@@ -281,21 +501,22 @@ void SettingsWindow::Show() {
         easyUI.CreateButton("btnBackup", L"备份配置", 320, y, 240, ROW_H);
         easyUI.CreateButton("btnRestore", L"恢复配置", 600, y, 240, ROW_H);
         y += ROW_H + SPACE;
-        easyUI.CreateLabel("lblAbout", L"YMC-toolkit v1.0  |  Minecraft 服务器监控工具", 40, y, 1000, ROW_H);
+        easyUI.CreateLabel("lblAbout", L"YMC-toolkit v1.0  |  Minecraft 服务器监控工具", 40, y, 800, ROW_H);
+        // 此时 y 约为 1120+? 加上最后一行高度 45 后最大位置约 1165，小于 1300，因此所有控件都在可视区域内
 
         LoadDataToUI();
 
-        // 事件绑定（略，与之前相同）
-        easyUI.OnClick("btnAddSrv", [this]() { AddServer(); });
-        easyUI.OnClick("btnEditSrv", [this]() { EditServer(); });
-        easyUI.OnClick("btnDelSrv", [this]() { DeleteServer(); });
-        easyUI.OnClick("btnUpSrv", [this]() { MoveServerUp(); });
-        easyUI.OnClick("btnDownSrv", [this]() { MoveServerDown(); });
-        easyUI.OnClick("btnDefSrv", [this]() { SetDefaultServer(); });
-        easyUI.OnClick("btnTestSrv", [this]() { TestServer(); });
-        easyUI.OnClick("btnAddShc", [this]() { AddShortcut(); });
-        easyUI.OnClick("btnEditShc", [this]() { EditShortcut(); });
-        easyUI.OnClick("btnDelShc", [this]() { DeleteShortcut(); });
+        // 事件绑定
+        easyUI.OnClick("btnManageServers", [this]() {
+            ShowServerManageWindow(detail::GS().hwnd, m_config);
+            m_config.Save(m_configPath);
+            PostMessage(m_hParent, WM_CONFIG_UPDATED, 0, 0);
+        });
+        easyUI.OnClick("btnManageShortcuts", [this]() {
+            ShowShortcutManageWindow(detail::GS().hwnd, m_config);
+            m_config.Save(m_configPath);
+            PostMessage(m_hParent, WM_CONFIG_UPDATED, 0, 0);
+        });
         easyUI.OnClick("btnBrowse", [this]() { BrowseGameCommand(); });
         easyUI.OnClick("btnTestRem", [this]() { TestReminder(); });
         easyUI.OnClick("btnClearHist", [this]() { ClearHistory(); });
@@ -315,7 +536,6 @@ void SettingsWindow::Show() {
         easyUI.OnClick("chkTimeEn", [this, &ToggleChk]() { ToggleChk("chkTimeEn", m_config.timeDisplay.enabled); });
         easyUI.OnClick("chkRemEn", [this, &ToggleChk]() { ToggleChk("chkRemEn", m_config.reminder.enabled); });
         easyUI.OnClick("chkMonEn", [this, &ToggleChk]() { ToggleChk("chkMonEn", m_config.serverMonitor.backgroundEnabled); });
-
         easyUI.OnClick("chkStartup", [this]() {
             bool cur = easyUI.Text("chkStartup").find(L"[√]") != std::wstring::npos;
             SetStartup(!cur);
@@ -326,10 +546,10 @@ void SettingsWindow::Show() {
             easyUI.Text("chkStartup", txt);
         });
 
-        // 启用自动缩放，基准尺寸与窗口尺寸相同，控件按原始像素显示
-        easyUI.SetAutoScale(true, 1600, 1400);
+        // 基准尺寸与窗口尺寸一致
+        easyUI.SetAutoScale(true, 1000, 1300);
 
-        HWND hwnd = eui::detail::GS().hwnd;
+        HWND hwnd = detail::GS().hwnd;
         SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)this);
         WNDPROC oldProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)SettingsWndProc);
         SetPropW(hwnd, L"OLD_PROC", (HANDLE)oldProc);
@@ -338,28 +558,8 @@ void SettingsWindow::Show() {
     easyUI.Run(app);
 }
 
-// 以下所有辅助函数与之前完全相同，省略...
-// （LoadDataToUI, SaveUItoConfig, SetCheckButtonState, 各个业务方法等）
-// 为节省篇幅，这里不再重复，请直接使用上一轮提供的完整代码中的相同部分。
-// 注意：需要将原文件中的这些函数完整拷贝过来。
-
+// ========== 辅助方法 ==========
 void SettingsWindow::LoadDataToUI() {
-    auto* cmbSrv = dynamic_cast<Controls::ComboBox*>(Controls::FindControl("cmbServers"));
-    if (cmbSrv) cmbSrv->items.clear();
-    for (auto& sv : m_config.servers)
-        easyUI.AddComboItem("cmbServers", PopupWindow::UTF8ToWide(sv.host + ":" + std::to_string(sv.port)));
-
-    auto* cmbShc = dynamic_cast<Controls::ComboBox*>(Controls::FindControl("cmbShortcuts"));
-    if (cmbShc) cmbShc->items.clear();
-    for (auto& sc : m_config.shortcuts)
-        easyUI.AddComboItem("cmbShortcuts", PopupWindow::UTF8ToWide(sc.name + " -> " + sc.url));
-
-    easyUI.Text("txtPopWidth", std::to_wstring(m_config.popupWidth));
-    easyUI.Text("txtPopHeight", std::to_wstring(m_config.popupHeight));
-    easyUI.Text("txtEdge", std::to_wstring(m_config.edgeThreshold));
-
-    SetCheckButtonState("chkTimeEn", m_config.timeDisplay.enabled);
-    easyUI.Text("chkTimeEn", (m_config.timeDisplay.enabled ? L"[√] " : L"[ ] ") + std::wstring(L"启用时间显示"));
     auto* cmbFmt = dynamic_cast<Controls::ComboBox*>(Controls::FindControl("cmbTimeFmt"));
     if (cmbFmt) {
         cmbFmt->items.clear();
@@ -367,19 +567,17 @@ void SettingsWindow::LoadDataToUI() {
         cmbFmt->items.push_back(L"HH:mm");
         cmbFmt->selectedIndex = (m_config.timeDisplay.format == "HH:mm") ? 1 : 0;
     }
-
+    easyUI.Text("txtPopWidth", std::to_wstring(m_config.popupWidth));
+    easyUI.Text("txtPopHeight", std::to_wstring(m_config.popupHeight));
+    easyUI.Text("txtEdge", std::to_wstring(m_config.edgeThreshold));
+    SetCheckButtonState("chkTimeEn", m_config.timeDisplay.enabled);
     SetCheckButtonState("chkRemEn", m_config.reminder.enabled);
-    easyUI.Text("chkRemEn", (m_config.reminder.enabled ? L"[√] " : L"[ ] ") + std::wstring(L"启用休息提醒"));
     easyUI.Text("txtRemInterval", std::to_wstring(m_config.reminder.intervalMinutes));
     easyUI.Text("txtRemMsg", PopupWindow::UTF8ToWide(m_config.reminder.message));
-
     SetCheckButtonState("chkMonEn", m_config.serverMonitor.backgroundEnabled);
-    easyUI.Text("chkMonEn", (m_config.serverMonitor.backgroundEnabled ? L"[√] " : L"[ ] ") + std::wstring(L"启用后台监控"));
     easyUI.Text("txtMonInterval", std::to_wstring(m_config.serverMonitor.intervalSeconds));
     easyUI.Text("txtMonMaxPts", std::to_wstring(m_config.serverMonitor.maxDataPoints));
-
     easyUI.Text("txtGameCmd", PopupWindow::UTF8ToWide(m_config.gameCommand));
-
     HKEY hKey;
     bool startup = false;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
@@ -397,7 +595,6 @@ void SettingsWindow::SaveUItoConfig() {
         std::wstring str = easyUI.Text(name);
         try { return std::stoi(str); } catch (...) { return 0; }
     };
-
     m_config.popupWidth = GetInt("txtPopWidth");
     m_config.popupHeight = GetInt("txtPopHeight");
     m_config.edgeThreshold = GetInt("txtEdge");
@@ -406,7 +603,6 @@ void SettingsWindow::SaveUItoConfig() {
     m_config.serverMonitor.intervalSeconds = GetInt("txtMonInterval");
     m_config.serverMonitor.maxDataPoints = GetInt("txtMonMaxPts");
     m_config.gameCommand = PopupWindow::WideToUTF8(easyUI.Text("txtGameCmd"));
-
     auto* cmbFmt = dynamic_cast<Controls::ComboBox*>(Controls::FindControl("cmbTimeFmt"));
     if (cmbFmt && cmbFmt->selectedIndex >= 0 && cmbFmt->selectedIndex < (int)cmbFmt->items.size())
         m_config.timeDisplay.format = (cmbFmt->selectedIndex == 1) ? "HH:mm" : "HH:mm:ss";
@@ -423,87 +619,6 @@ void SettingsWindow::SetCheckButtonState(const std::string& name, bool checked) 
     easyUI.SetBtnStyle(name, checked ? chkOn : chkOff);
 }
 
-// ---------- 业务方法 ----------
-void SettingsWindow::AddServer() {
-    std::string host = "localhost", port = "25565";
-    if (ShowInputDialog(detail::GS().hwnd, "添加服务器", "主机名/IP", "端口", host, port)) {
-        m_config.servers.push_back({host, std::stoi(port)});
-        LoadDataToUI();
-    }
-}
-void SettingsWindow::EditServer() {
-    int sel = easyUI.GetComboIndex("cmbServers");
-    if (sel < 0 || sel >= (int)m_config.servers.size()) return;
-    ServerInfo& sv = m_config.servers[sel];
-    std::string host = sv.host, port = std::to_string(sv.port);
-    if (ShowInputDialog(detail::GS().hwnd, "编辑服务器", "主机名/IP", "端口", host, port)) {
-        sv.host = host; sv.port = std::stoi(port);
-        LoadDataToUI();
-    }
-}
-void SettingsWindow::DeleteServer() {
-    int sel = easyUI.GetComboIndex("cmbServers");
-    if (sel >= 0 && sel < (int)m_config.servers.size()) {
-        m_config.servers.erase(m_config.servers.begin() + sel);
-        if (m_config.currentServer >= (int)m_config.servers.size()) m_config.currentServer = (int)m_config.servers.size() - 1;
-        LoadDataToUI();
-    }
-}
-void SettingsWindow::MoveServerUp() {
-    int sel = easyUI.GetComboIndex("cmbServers");
-    if (sel > 0) {
-        std::swap(m_config.servers[sel], m_config.servers[sel - 1]);
-        if (m_config.currentServer == sel) m_config.currentServer = sel - 1;
-        LoadDataToUI();
-    }
-}
-void SettingsWindow::MoveServerDown() {
-    int sel = easyUI.GetComboIndex("cmbServers");
-    if (sel >= 0 && sel < (int)m_config.servers.size() - 1) {
-        std::swap(m_config.servers[sel], m_config.servers[sel + 1]);
-        if (m_config.currentServer == sel) m_config.currentServer = sel + 1;
-        LoadDataToUI();
-    }
-}
-void SettingsWindow::SetDefaultServer() {
-    int sel = easyUI.GetComboIndex("cmbServers");
-    if (sel >= 0) { m_config.currentServer = sel; LoadDataToUI(); }
-}
-void SettingsWindow::TestServer() {
-    int sel = easyUI.GetComboIndex("cmbServers");
-    if (sel < 0) return;
-    ServerInfo& sv = m_config.servers[sel];
-    ServerStatus status;
-    if (PingServer(sv.host, sv.port, status)) {
-        wchar_t msg[1024];
-        swprintf(msg, 1024, L"在线\n玩家: %d/%d\n版本: %s\n延迟: %d ms",
-            status.players, status.maxPlayers, PopupWindow::UTF8ToWide(status.version).c_str(), status.latency);
-        MessageBoxW(detail::GS().hwnd, msg, L"测试结果", MB_OK);
-    } else {
-        MessageBoxW(detail::GS().hwnd, L"离线或无法连接", L"测试结果", MB_OK);
-    }
-}
-void SettingsWindow::AddShortcut() {
-    std::string name = "新快捷方式", url = "https://";
-    if (ShowInputDialog(detail::GS().hwnd, "添加快捷方式", "名称", "URL", name, url)) {
-        m_config.shortcuts.push_back({name, url});
-        LoadDataToUI();
-    }
-}
-void SettingsWindow::EditShortcut() {
-    int sel = easyUI.GetComboIndex("cmbShortcuts");
-    if (sel < 0) return;
-    Shortcut& sc = m_config.shortcuts[sel];
-    std::string name = sc.name, url = sc.url;
-    if (ShowInputDialog(detail::GS().hwnd, "编辑快捷方式", "名称", "URL", name, url)) {
-        sc.name = name; sc.url = url;
-        LoadDataToUI();
-    }
-}
-void SettingsWindow::DeleteShortcut() {
-    int sel = easyUI.GetComboIndex("cmbShortcuts");
-    if (sel >= 0) { m_config.shortcuts.erase(m_config.shortcuts.begin() + sel); LoadDataToUI(); }
-}
 void SettingsWindow::BrowseGameCommand() {
     OPENFILENAMEW ofn = {};
     wchar_t fileName[MAX_PATH] = {0};
@@ -515,14 +630,17 @@ void SettingsWindow::BrowseGameCommand() {
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
     if (GetOpenFileNameW(&ofn)) easyUI.Text("txtGameCmd", fileName);
 }
+
 void SettingsWindow::TestReminder() {
     ReminderWindow reminder;
     reminder.Show(PopupWindow::UTF8ToWide(m_config.reminder.message));
 }
+
 void SettingsWindow::ClearHistory() {
     PostMessage(m_hParent, WM_CLEAR_HISTORY, 0, 0);
     MessageBoxW(detail::GS().hwnd, L"历史数据已清除", L"提示", MB_OK);
 }
+
 void SettingsWindow::ResetConfig() {
     if (MessageBoxW(detail::GS().hwnd, L"重置所有配置到默认值？当前配置将丢失。", L"确认", MB_YESNO) == IDYES) {
         m_config = Config::FromJson(nlohmann::json::object());
@@ -530,6 +648,7 @@ void SettingsWindow::ResetConfig() {
         LoadDataToUI();
     }
 }
+
 void SettingsWindow::BackupConfig() {
     wchar_t backupPath[MAX_PATH];
     GetModuleFileNameW(NULL, backupPath, MAX_PATH);
@@ -539,6 +658,7 @@ void SettingsWindow::BackupConfig() {
     else
         MessageBoxW(detail::GS().hwnd, L"备份失败", L"错误", MB_ICONERROR);
 }
+
 void SettingsWindow::RestoreConfig() {
     wchar_t backupPath[MAX_PATH];
     GetModuleFileNameW(NULL, backupPath, MAX_PATH);
@@ -551,6 +671,7 @@ void SettingsWindow::RestoreConfig() {
         MessageBoxW(detail::GS().hwnd, L"未找到备份文件", L"错误", MB_ICONERROR);
     }
 }
+
 void SettingsWindow::SetStartup(bool enable) {
     HKEY hKey;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
