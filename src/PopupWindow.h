@@ -89,8 +89,9 @@ private:
     POINT m_animTargetOrg;
     int m_animStepCount;
     int m_animCurrentStep;
-    int m_animEdge;
-    int m_animOffset;
+
+    // 双击立即拖动的辅助标志
+    bool m_ignoreNextUp;
 
     // 原有函数
     Gdiplus::Bitmap* CreateBitmapFromData(const BYTE* data, size_t len);
@@ -110,10 +111,10 @@ private:
 
     // 新增辅助函数
     void UpdateLockIndicator();
-    void BeginDrag(POINT ptClient);
+    void BeginDrag(POINT ptClient, bool ignoreNextUp = false);
     void DoDrag(POINT ptScreen);
     void EndDrag();
-    void MoveWindowGlide(int targetX, int targetY, int edge, int offset);
+    void MoveWindowGlide(int targetX, int targetY);   // 改为 2 参数
     void OnAnimTimer();
     void SnapToNearestEdge();
     RECT GetWorkArea() const;

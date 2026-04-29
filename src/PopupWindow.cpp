@@ -67,7 +67,8 @@ PopupWindow::PopupWindow()
       m_hFaviconStatic(NULL), m_pFaviconBitmap(NULL), m_gdiplusToken(0),
       m_pGdiNormalFont(NULL), m_pGdiBoldFont(NULL),
       m_locked(true), m_dockedEdge(0), m_edgeOffset(0), m_hLockIndicator(NULL),
-      m_dragging(false), m_animTimerId(0)
+      m_dragging(false), m_animTimerId(0),
+      m_ignoreNextUp(false)
 {
     for (int i = 0; i < 4; ++i) m_hShortcutButtons[i] = NULL;
     m_dragOffset.x = m_dragOffset.y = 0;
@@ -520,14 +521,15 @@ bool PopupWindow::IsPointInTitleArea(POINT ptClient) const {
     return ptClient.y < (int)(30 * scale);
 }
 
-void PopupWindow::BeginDrag(POINT ptClient) {
+void PopupWindow::BeginDrag(POINT ptClient, bool ignoreNextUp) {
     if (m_animTimerId) {
         KillTimer(m_hWnd, m_animTimerId);
         m_animTimerId = 0;
     }
     SetCapture(m_hWnd);
     m_dragging = true;
-    m_dragLocked = m_locked;   // 记录拖动开始时的锁定状态
+    m_dragLocked = m_locked;
+    m_ignoreNextUp = ignoreNextUp;
     RECT rc;
     GetWindowRect(m_hWnd, &rc);
     POINT ptScreen;
@@ -553,7 +555,6 @@ void PopupWindow::DoDrag(POINT ptScreen) {
         bool touchRight = IsTouchingEdge(rc, 1);
 
         if ((touchTop || touchBottom) && (touchLeft || touchRight)) {
-            // 角落：自由移动但限制在工作区内
             if (newX < work.left) newX = work.left;
             if (newY < work.top) newY = work.top;
             if (newX + w > work.right) newX = work.right - w;
@@ -579,7 +580,6 @@ void PopupWindow::DoDrag(POINT ptScreen) {
             }
         }
     } else {
-        // 解锁状态：自由移动
         if (newX < work.left) newX = work.left;
         if (newY < work.top) newY = work.top;
         if (newX + w > work.right) newX = work.right - w;
@@ -592,7 +592,6 @@ void PopupWindow::EndDrag() {
     ReleaseCapture();
     m_dragging = false;
 
-    // 获取鼠标最终位置
     POINT ptCursor;
     GetCursorPos(&ptCursor);
     
@@ -602,13 +601,12 @@ void PopupWindow::EndDrag() {
     int w = rc.right - rc.left;
     int h = rc.bottom - rc.top;
 
-    // 计算鼠标到四边的距离
     int distTop = ptCursor.y - work.top;
     int distBottom = work.bottom - ptCursor.y;
     int distLeft = ptCursor.x - work.left;
     int distRight = work.right - ptCursor.x;
 
-    int edge = 0; // 默认上边
+    int edge = 0;
     int minDist = distTop;
     if (distRight < minDist) { minDist = distRight; edge = 1; }
     if (distBottom < minDist) { minDist = distBottom; edge = 2; }
@@ -633,15 +631,17 @@ void PopupWindow::EndDrag() {
         case 3: targetX = work.left; targetY = offset; break;
     }
 
-    MoveWindowGlide(targetX, targetY, edge, offset);
+    // 立即更新停靠边和偏移，确保动画期间停靠信息正确
+    m_dockedEdge = edge;
+    m_edgeOffset = offset;
+
+    MoveWindowGlide(targetX, targetY);
 }
 
-void PopupWindow::MoveWindowGlide(int targetX, int targetY, int edge, int offset) {
+void PopupWindow::MoveWindowGlide(int targetX, int targetY) {
     if (m_animTimerId) KillTimer(m_hWnd, m_animTimerId);
     m_animTargetOrg.x = targetX;
     m_animTargetOrg.y = targetY;
-    m_animEdge = edge;
-    m_animOffset = offset;
     m_animStepCount = 10;
     m_animCurrentStep = 0;
 
@@ -659,10 +659,7 @@ void PopupWindow::OnAnimTimer() {
         KillTimer(m_hWnd, m_animTimerId);
         m_animTimerId = 0;
         SetWindowPos(m_hWnd, NULL, m_animTargetOrg.x, m_animTargetOrg.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-        m_dockedEdge = m_animEdge;
-        m_edgeOffset = m_animOffset;
         if (!m_dragLocked) {
-            // 如果拖动开始时是解锁状态，动画结束后锁定
             m_locked = true;
             UpdateLockIndicator();
         }
@@ -726,6 +723,10 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             break;
         }
         case WM_LBUTTONUP: {
+            if (pThis->m_ignoreNextUp) {
+                pThis->m_ignoreNextUp = false;
+                return 0;
+            }
             if (pThis->m_dragging) {
                 pThis->EndDrag();
                 return 0;
@@ -735,8 +736,13 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         case WM_LBUTTONDBLCLK: {
             POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
             if (pThis->IsPointInTitleArea(pt) && !pThis->IsPointInButtonArea(pt)) {
+                bool wasLocked = pThis->m_locked;
                 pThis->m_locked = !pThis->m_locked;
                 pThis->UpdateLockIndicator();
+                if (wasLocked && !pThis->m_locked) {
+                    // 从锁定变为解锁，立即开始拖动，并忽略紧接着的 WM_LBUTTONUP
+                    pThis->BeginDrag(pt, true);
+                }
                 return 0;
             }
             break;
