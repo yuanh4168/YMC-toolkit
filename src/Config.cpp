@@ -57,7 +57,7 @@ nlohmann::json Config::ToJson(const Config& cfg) {
     j["server_monitor"]["interval_seconds"] = cfg.serverMonitor.intervalSeconds;
     j["server_monitor"]["max_data_points"] = cfg.serverMonitor.maxDataPoints;
 
-    // 游戏启动（可选）
+    // 游戏启动
     if (!cfg.gameCommand.empty()) {
         j["game"]["command"] = cfg.gameCommand;
         if (!cfg.gameArgs.empty()) {
@@ -67,6 +67,10 @@ nlohmann::json Config::ToJson(const Config& cfg) {
     if (!cfg.newsURL.empty()) {
         j["news"]["url"] = cfg.newsURL;
     }
+
+    // 停靠
+    j["docked_edge"] = cfg.dockedEdge;
+    j["edge_offset"] = cfg.edgeOffset;
 
     return j;
 }
@@ -116,7 +120,7 @@ Config Config::FromJson(const nlohmann::json& j) {
         cfg.popupHeight = 300;
     }
 
-    // 按钮布局
+    // 按钮
     cfg.buttonRects.clear();
     if (j.contains("buttons") && j["buttons"].is_array()) {
         for (const auto& btn : j["buttons"]) {
@@ -161,8 +165,9 @@ Config Config::FromJson(const nlohmann::json& j) {
 
     cfg.newsURL = j.value("news", nlohmann::json::object()).value("url", "");
 
-    // 应用 DPI 缩放（注意：popupWidth/Height 等已经是物理像素，不需要再缩放）
-    // 但是按钮坐标等需要根据当前 DPI 重新计算，这里留到使用时处理
+    // 停靠
+    cfg.dockedEdge = j.value("docked_edge", 0);
+    cfg.edgeOffset = j.value("edge_offset", 0);
 
     return cfg;
 }
@@ -170,7 +175,6 @@ Config Config::FromJson(const nlohmann::json& j) {
 bool Config::Load(const std::string& filePath) {
     std::ifstream f(filePath);
     if (!f.is_open()) {
-        // 文件不存在，使用默认配置
         *this = FromJson(nlohmann::json::object());
         Save(filePath);
         return true;

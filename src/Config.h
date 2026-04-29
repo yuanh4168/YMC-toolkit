@@ -55,8 +55,12 @@ struct Config {
     Reminder reminder;
     ServerMonitor serverMonitor;
 
+    // 停靠相关
+    int dockedEdge = 0;      // 0: top, 1: right, 2: bottom, 3: left
+    int edgeOffset = 0;      // 沿边方向的偏移（对于 top/bottom 是 left 坐标，对于 left/right 是 top 坐标）
+
     bool Load(const std::string& filePath);
-    bool Save(const std::string& filePath) const;   // 改为 const，不修改对象
+    bool Save(const std::string& filePath) const;
     static nlohmann::json ToJson(const Config& cfg);
     static Config FromJson(const nlohmann::json& j);
 };

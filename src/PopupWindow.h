@@ -6,7 +6,6 @@
 #include "Config.h"
 #include "ServerPinger.h"
 
-// 控件 ID
 #define IDC_SERVER_STATUS 1001
 #define IDC_LAUNCH_BUTTON 1003
 #define IDC_SHORTCUT1     1004
@@ -37,14 +36,16 @@ public:
     HWND GetHWND() const { return m_hWnd; }
     int GetLastX() const { return m_lastX; }
     void SetLastX(int x) { m_lastX = x; }
+    int GetDockedEdge() const { return m_dockedEdge; }
+    int GetEdgeOffset() const { return m_edgeOffset; }
 
     static std::wstring UTF8ToWide(const std::string& utf8);
     static std::string WideToUTF8(const std::wstring& wide);
 
 private:
     HWND m_hWnd;
-    HWND m_hParent;          // 父窗口句柄（保存以便重建）
-    HINSTANCE m_hInst;       // 实例句柄（保存以便重建）
+    HWND m_hParent;
+    HINSTANCE m_hInst;
     HWND m_hServerAddressStatic;
     HWND m_hServerStatusStatic;
     HWND m_hShortcutButtons[4];
@@ -59,6 +60,7 @@ private:
     HWND m_hStatsButton;
     HWND m_hSettingsButton;
     HWND m_hTimeStatic;
+    HWND m_hLockIndicator;
     int m_lastX;
     bool m_autoHideScheduled;
 
@@ -71,6 +73,26 @@ private:
 
     std::map<HWND, int> m_buttonRadiusMap;
 
+    // 锁定与停靠
+    bool m_locked;
+    int m_dockedEdge;
+    int m_edgeOffset;
+
+    // 自定义拖动状态
+    bool m_dragging;
+    POINT m_dragOffset;
+    bool m_dragLocked;                 // 拖动开始时的锁定状态
+
+    // 吸附动画
+    UINT_PTR m_animTimerId;
+    RECT m_animStartRect;
+    POINT m_animTargetOrg;
+    int m_animStepCount;
+    int m_animCurrentStep;
+    int m_animEdge;
+    int m_animOffset;
+
+    // 原有函数
     Gdiplus::Bitmap* CreateBitmapFromData(const BYTE* data, size_t len);
     Gdiplus::Bitmap* Base64ToBitmap(const std::string& base64Data);
 
@@ -82,9 +104,21 @@ private:
     void ScheduleAutoHide();
     void CancelAutoHide();
     void OnAutoHideTimer();
-    void AdhereToTop();
     void UpdateLastX();
     void UpdateTimeDisplay();
+    void Recreate();
 
-    void Recreate();   // 新增：重建窗口
+    // 新增辅助函数
+    void UpdateLockIndicator();
+    void BeginDrag(POINT ptClient);
+    void DoDrag(POINT ptScreen);
+    void EndDrag();
+    void MoveWindowGlide(int targetX, int targetY, int edge, int offset);
+    void OnAnimTimer();
+    void SnapToNearestEdge();
+    RECT GetWorkArea() const;
+    bool IsTouchingEdge(const RECT& rc, int edge) const;
+    void ClampToWorkArea(RECT& rc) const;
+    bool IsPointInButtonArea(POINT ptClient) const;
+    bool IsPointInTitleArea(POINT ptClient) const;
 };

@@ -10,6 +10,8 @@
 #include <wincrypt.h>
 #include <map>
 #include <ctime>
+#include <cmath>
+#include <windowsx.h>
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "crypt32.lib")
@@ -63,8 +65,12 @@ PopupWindow::PopupWindow()
       m_hExitButton(NULL), m_hSwitchButton(NULL), m_hToolButton(NULL), m_hStatsButton(NULL),
       m_hSettingsButton(NULL), m_hTimeStatic(NULL), m_lastX(0), m_autoHideScheduled(false),
       m_hFaviconStatic(NULL), m_pFaviconBitmap(NULL), m_gdiplusToken(0),
-      m_pGdiNormalFont(NULL), m_pGdiBoldFont(NULL) {
+      m_pGdiNormalFont(NULL), m_pGdiBoldFont(NULL),
+      m_locked(true), m_dockedEdge(0), m_edgeOffset(0), m_hLockIndicator(NULL),
+      m_dragging(false), m_animTimerId(0)
+{
     for (int i = 0; i < 4; ++i) m_hShortcutButtons[i] = NULL;
+    m_dragOffset.x = m_dragOffset.y = 0;
 }
 
 PopupWindow::~PopupWindow() {
@@ -84,9 +90,13 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     m_config = cfg;
     double scale = GetDPIScale();
 
+    m_dockedEdge = cfg.dockedEdge;
+    m_edgeOffset = cfg.edgeOffset;
+    m_locked = true;
+
     WNDCLASSEXW wc = {0};
     wc.cbSize = sizeof(WNDCLASSEXW);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
@@ -123,7 +133,6 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     m_pGdiNormalFont = new Font(hdc, m_hNormalFont);
     m_pGdiBoldFont   = new Font(hdc, m_hBoldFont);
 
-    // 辅助函数：从配置中获取按钮矩形（逻辑像素），若不存在则返回 false
     auto getButtonRect = [&](const std::string& id, RECT& rect) -> bool {
         for (const auto& br : m_config.buttonRects) {
             if (br.id == id) {
@@ -137,14 +146,10 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         return false;
     };
 
-    // 通用按钮创建函数，优先使用配置坐标，否则使用默认坐标（默认坐标需由调用者提供）
     auto createButton = [&](const std::string& id, const std::wstring& text, int cmdId, 
                             const RECT& defaultRect, DWORD extraStyle = 0) -> HWND {
         RECT rect = defaultRect;
-        if (getButtonRect(id, rect)) {
-            // 使用配置坐标（逻辑像素），不进行任何适配检查
-        }
-        // 应用 DPI 缩放
+        getButtonRect(id, rect);
         int x = (int)(rect.left * scale);
         int y = (int)(rect.top * scale);
         int w = (int)((rect.right - rect.left) * scale);
@@ -160,13 +165,10 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         return hBtn;
     };
 
-    // 静态文本创建函数（同样支持配置坐标，但静态文本通常不需要，为了完整也支持）
     auto createStatic = [&](const std::string& id, const std::wstring& text, int cmdId,
                             const RECT& defaultRect) -> HWND {
         RECT rect = defaultRect;
-        if (getButtonRect(id, rect)) {
-            // 使用配置坐标
-        }
+        getButtonRect(id, rect);
         int x = (int)(rect.left * scale);
         int y = (int)(rect.top * scale);
         int w = (int)((rect.right - rect.left) * scale);
@@ -181,29 +183,21 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
         return hStatic;
     };
 
-    // ========== 创建控件，优先使用 config 中的坐标 ==========
-
-    // 1. "当前服务器" 标签（默认位置：左上角）
+    // --- 创建控件 ---
     RECT defaultLabelRect = {10, 10, m_config.popupWidth - 10, 30};
     createStatic("label_current_server", L"当前服务器", 0, defaultLabelRect);
 
-    // 2. 服务器地址（默认位置：标签下方）
     RECT defaultAddrRect = {10, 30, m_config.popupWidth - 10, 50};
     m_hServerAddressStatic = createStatic("server_address", L"未知", IDC_SERVER_STATUS, defaultAddrRect);
 
-    // 3. "服务器状态" 标签
     RECT defaultStatusLabelRect = {10, 60, m_config.popupWidth - 10, 80};
     createStatic("label_server_status", L"服务器状态", 0, defaultStatusLabelRect);
 
-    // 4. 服务器状态文本区域（默认位置：标签下方，预留高度 90）
-    RECT defaultStatusRect = {10, 80, m_config.popupWidth - 10 - 64 - 10, 170};  // 右侧留出图标空间
+    RECT defaultStatusRect = {10, 80, m_config.popupWidth - 10 - 64 - 10, 170};
     m_hServerStatusStatic = createStatic("server_status_text", L"检测中...", IDC_SERVER_STATUS + 1, defaultStatusRect);
 
-    // 5. Favicon 图标（默认位置：右上角状态区域右侧）
     RECT defaultFaviconRect = {m_config.popupWidth - 64 - 10, 80, m_config.popupWidth - 10, 80 + 64};
-    if (getButtonRect("favicon", defaultFaviconRect)) {
-        // 如果配置中有 favicon 矩形，则使用
-    }
+    getButtonRect("favicon", defaultFaviconRect);
     int fx = (int)(defaultFaviconRect.left * scale);
     int fy = (int)(defaultFaviconRect.top * scale);
     int fw = (int)((defaultFaviconRect.right - defaultFaviconRect.left) * scale);
@@ -211,14 +205,12 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
     m_hFaviconStatic = CreateWindowW(L"STATIC", NULL, WS_CHILD | WS_VISIBLE | SS_BITMAP,
         fx, fy, fw, fh, m_hWnd, NULL, hInst, NULL);
 
-    // 6. 统计按钮（默认位置：Favicon 下方）
     RECT defaultStatsRect = {m_config.popupWidth - 60 - 10, 80 + 64 + 10, m_config.popupWidth - 10, 80 + 64 + 10 + 30};
     m_hStatsButton = createButton("stats", L"统计", IDC_STATS_BUTTON, defaultStatsRect);
 
-    // 7. 快捷按钮（最多4个，默认均匀分布，但优先使用配置中的 shortcut1~shortcut4）
     int shortcutCount = (int)m_config.shortcuts.size();
     if (shortcutCount > 4) shortcutCount = 4;
-    int defaultShortcutWidth = (m_config.popupWidth - 50) / 4;  // 间距 10*5 = 50
+    int defaultShortcutWidth = (m_config.popupWidth - 50) / 4;
     for (int i = 0; i < shortcutCount; ++i) {
         std::string id = "shortcut" + std::to_string(i + 1);
         RECT defaultRect = {10 + i * (defaultShortcutWidth + 10), 190,
@@ -227,42 +219,46 @@ bool PopupWindow::Create(HWND hParent, HINSTANCE hInst, const Config& cfg) {
                                              IDC_SHORTCUT1 + i, defaultRect);
     }
 
-    // 8. 启动游戏按钮
     RECT defaultLaunchRect = {150, 230, 250, 260};
-    HWND hLaunch = createButton("launch", L"启动游戏", IDC_LAUNCH_BUTTON, defaultLaunchRect);
+    createButton("launch", L"启动游戏", IDC_LAUNCH_BUTTON, defaultLaunchRect);
 
-    // 9. 切换服务器按钮
     RECT defaultSwitchRect = {260, 230, 360, 260};
     m_hSwitchButton = createButton("switch", L"切换服务器", IDC_SWITCH_BUTTON, defaultSwitchRect);
 
-    // 10. 工具箱按钮
     RECT defaultToolRect = {40, 270, 140, 300};
     m_hToolButton = createButton("tool", L"工具箱", IDC_TOOL_BUTTON, defaultToolRect);
 
-    // 11. 设置按钮
     RECT defaultSettingsRect = {150, 270, 250, 300};
     m_hSettingsButton = createButton("settings", L"设置", IDC_SETTINGS_BUTTON, defaultSettingsRect);
 
-    // 12. 退出按钮（右上角）
     RECT defaultExitRect = {m_config.popupWidth - 30, 0, m_config.popupWidth, 30};
     m_hExitButton = createButton("exit", L"×", IDC_EXIT_BUTTON, defaultExitRect);
 
-    // 13. 时间显示（默认位置：退出按钮左侧）
+    RECT lockRect = {m_config.popupWidth - 130, 0, m_config.popupWidth - 30, 30};
+    m_hLockIndicator = createStatic("lock_indicator", L"[锁定]", 0, lockRect);
+
     if (m_config.timeDisplay.enabled) {
-        RECT defaultTimeRect = {m_config.popupWidth - 100 - 30, 5, m_config.popupWidth - 30, 30};
+        RECT defaultTimeRect = {m_config.popupWidth - 230, 5, m_config.popupWidth - 130, 30};
         m_hTimeStatic = createStatic("time_display", L"", IDC_TIME_STATIC, defaultTimeRect);
         SetTimer(m_hWnd, 101, 1000, NULL);
         UpdateTimeDisplay();
     }
 
-    // 统一字体（再次确保所有子控件都使用了字体）
     for (HWND hChild = GetWindow(m_hWnd, GW_CHILD); hChild; hChild = GetWindow(hChild, GW_HWNDNEXT)) {
         SendMessage(hChild, WM_SETFONT, (WPARAM)m_hNormalFont, TRUE);
     }
 
     TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, m_hWnd, 0 };
     TrackMouseEvent(&tme);
+    
+    UpdateLockIndicator();
     return true;
+}
+
+void PopupWindow::UpdateLockIndicator() {
+    if (m_hLockIndicator) {
+        SetWindowTextW(m_hLockIndicator, m_locked ? L"[锁定]" : L"[拖动]");
+    }
 }
 
 void PopupWindow::UpdateTimeDisplay() {
@@ -281,9 +277,26 @@ void PopupWindow::UpdateTimeDisplay() {
 
 void PopupWindow::Show() {
     if (IsWindowVisible(m_hWnd)) return;
-    int x = (m_lastX != 0) ? m_lastX : (GetSystemMetrics(SM_CXSCREEN) - m_config.popupWidth) / 2;
-    SetWindowPos(m_hWnd, HWND_TOPMOST, x, 0, m_config.popupWidth, m_config.popupHeight, SWP_NOZORDER);
-    AnimateWindow(m_hWnd, 200, AW_SLIDE | AW_VER_POSITIVE | AW_ACTIVATE);
+    
+    RECT work = GetWorkArea();
+    int w = m_config.popupWidth;
+    int h = m_config.popupHeight;
+    int x, y;
+    switch (m_dockedEdge) {
+        case 0: x = m_edgeOffset; y = work.top; break;
+        case 1: x = work.right - w; y = m_edgeOffset; break;
+        case 2: x = m_edgeOffset; y = work.bottom - h; break;
+        case 3: x = work.left; y = m_edgeOffset; break;
+    }
+    SetWindowPos(m_hWnd, HWND_TOPMOST, x, y, w, h, SWP_NOZORDER);
+    
+    DWORD flags = AW_ACTIVATE;
+    if (m_dockedEdge == 0) flags |= AW_SLIDE | AW_VER_POSITIVE;
+    else if (m_dockedEdge == 2) flags |= AW_SLIDE | AW_VER_NEGATIVE;
+    else if (m_dockedEdge == 3) flags |= AW_SLIDE | AW_HOR_POSITIVE;
+    else if (m_dockedEdge == 1) flags |= AW_SLIDE | AW_HOR_NEGATIVE;
+    
+    AnimateWindow(m_hWnd, 200, flags);
     m_hHoverButton = NULL;
     CancelAutoHide();
     TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, m_hWnd, 0 };
@@ -292,8 +305,14 @@ void PopupWindow::Show() {
 
 void PopupWindow::Hide() {
     if (!IsWindowVisible(m_hWnd)) return;
-    UpdateLastX();
-    AnimateWindow(m_hWnd, 200, AW_SLIDE | AW_VER_NEGATIVE | AW_HIDE);
+    
+    DWORD flags = AW_HIDE;
+    if (m_dockedEdge == 0) flags |= AW_SLIDE | AW_VER_NEGATIVE;
+    else if (m_dockedEdge == 2) flags |= AW_SLIDE | AW_VER_POSITIVE;
+    else if (m_dockedEdge == 3) flags |= AW_SLIDE | AW_HOR_NEGATIVE;
+    else if (m_dockedEdge == 1) flags |= AW_SLIDE | AW_HOR_POSITIVE;
+    
+    AnimateWindow(m_hWnd, 200, flags);
     CancelAutoHide();
 }
 
@@ -301,16 +320,6 @@ void PopupWindow::UpdateLastX() {
     RECT rc;
     GetWindowRect(m_hWnd, &rc);
     m_lastX = rc.left;
-}
-
-void PopupWindow::AdhereToTop() {
-    if (!IsWindowVisible(m_hWnd)) return;
-    RECT rc;
-    GetWindowRect(m_hWnd, &rc);
-    int x = rc.left;
-    SetWindowPos(m_hWnd, HWND_TOPMOST, x, 0, m_config.popupWidth, m_config.popupHeight, SWP_NOZORDER);
-    UpdateLastX();
-    ScheduleAutoHide();
 }
 
 void PopupWindow::ScheduleAutoHide() {
@@ -456,6 +465,233 @@ Gdiplus::Bitmap* PopupWindow::Base64ToBitmap(const std::string& base64Data) {
     return CreateBitmapFromData(decoded.data(), decodedLen);
 }
 
+RECT PopupWindow::GetWorkArea() const {
+    RECT work = {0};
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &work, 0);
+    return work;
+}
+
+bool PopupWindow::IsTouchingEdge(const RECT& rc, int edge) const {
+    RECT work = GetWorkArea();
+    switch (edge) {
+        case 0: return abs(rc.top - work.top) <= 2;
+        case 2: return abs(rc.bottom - work.bottom) <= 2;
+        case 3: return abs(rc.left - work.left) <= 2;
+        case 1: return abs(rc.right - work.right) <= 2;
+    }
+    return false;
+}
+
+void PopupWindow::ClampToWorkArea(RECT& rc) const {
+    RECT work = GetWorkArea();
+    int w = rc.right - rc.left, h = rc.bottom - rc.top;
+    if (rc.left < work.left) rc.left = work.left;
+    if (rc.top < work.top) rc.top = work.top;
+    if (rc.right > work.right) { rc.left = work.right - w; rc.right = work.right; }
+    if (rc.bottom > work.bottom) { rc.top = work.bottom - h; rc.bottom = work.bottom; }
+}
+
+bool PopupWindow::IsPointInButtonArea(POINT ptClient) const {
+    for (int i = 0; i < 4; ++i) {
+        if (m_hShortcutButtons[i]) {
+            RECT rc;
+            GetWindowRect(m_hShortcutButtons[i], &rc);
+            ScreenToClient(m_hWnd, (POINT*)&rc.left);
+            ScreenToClient(m_hWnd, (POINT*)&rc.right);
+            if (PtInRect(&rc, ptClient)) return true;
+        }
+    }
+    HWND buttons[] = { GetDlgItem(m_hWnd, IDC_LAUNCH_BUTTON), m_hSwitchButton, m_hToolButton,
+                       m_hStatsButton, m_hSettingsButton, m_hExitButton };
+    for (HWND hBtn : buttons) {
+        if (hBtn) {
+            RECT rc;
+            GetWindowRect(hBtn, &rc);
+            ScreenToClient(m_hWnd, (POINT*)&rc.left);
+            ScreenToClient(m_hWnd, (POINT*)&rc.right);
+            if (PtInRect(&rc, ptClient)) return true;
+        }
+    }
+    return false;
+}
+
+bool PopupWindow::IsPointInTitleArea(POINT ptClient) const {
+    double scale = GetDPIScale();
+    return ptClient.y < (int)(30 * scale);
+}
+
+void PopupWindow::BeginDrag(POINT ptClient) {
+    if (m_animTimerId) {
+        KillTimer(m_hWnd, m_animTimerId);
+        m_animTimerId = 0;
+    }
+    SetCapture(m_hWnd);
+    m_dragging = true;
+    m_dragLocked = m_locked;   // 记录拖动开始时的锁定状态
+    RECT rc;
+    GetWindowRect(m_hWnd, &rc);
+    POINT ptScreen;
+    GetCursorPos(&ptScreen);
+    m_dragOffset.x = ptScreen.x - rc.left;
+    m_dragOffset.y = ptScreen.y - rc.top;
+}
+
+void PopupWindow::DoDrag(POINT ptScreen) {
+    if (!m_dragging) return;
+    int newX = ptScreen.x - m_dragOffset.x;
+    int newY = ptScreen.y - m_dragOffset.y;
+    RECT rc, work;
+    GetWindowRect(m_hWnd, &rc);
+    work = GetWorkArea();
+    int w = rc.right - rc.left;
+    int h = rc.bottom - rc.top;
+
+    if (m_dragLocked) {
+        bool touchTop = IsTouchingEdge(rc, 0);
+        bool touchBottom = IsTouchingEdge(rc, 2);
+        bool touchLeft = IsTouchingEdge(rc, 3);
+        bool touchRight = IsTouchingEdge(rc, 1);
+
+        if ((touchTop || touchBottom) && (touchLeft || touchRight)) {
+            // 角落：自由移动但限制在工作区内
+            if (newX < work.left) newX = work.left;
+            if (newY < work.top) newY = work.top;
+            if (newX + w > work.right) newX = work.right - w;
+            if (newY + h > work.bottom) newY = work.bottom - h;
+        } else {
+            if (touchTop) newY = work.top;
+            else if (touchBottom) newY = work.bottom - h;
+            if (touchLeft) newX = work.left;
+            else if (touchRight) newX = work.right - w;
+            if (touchTop || touchBottom) {
+                if (newX < work.left) newX = work.left;
+                if (newX + w > work.right) newX = work.right - w;
+            }
+            if (touchLeft || touchRight) {
+                if (newY < work.top) newY = work.top;
+                if (newY + h > work.bottom) newY = work.bottom - h;
+            }
+            if (!touchTop && !touchBottom && !touchLeft && !touchRight) {
+                if (newX < work.left) newX = work.left;
+                if (newY < work.top) newY = work.top;
+                if (newX + w > work.right) newX = work.right - w;
+                if (newY + h > work.bottom) newY = work.bottom - h;
+            }
+        }
+    } else {
+        // 解锁状态：自由移动
+        if (newX < work.left) newX = work.left;
+        if (newY < work.top) newY = work.top;
+        if (newX + w > work.right) newX = work.right - w;
+        if (newY + h > work.bottom) newY = work.bottom - h;
+    }
+    SetWindowPos(m_hWnd, NULL, newX, newY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void PopupWindow::EndDrag() {
+    ReleaseCapture();
+    m_dragging = false;
+
+    // 获取鼠标最终位置
+    POINT ptCursor;
+    GetCursorPos(&ptCursor);
+    
+    RECT work = GetWorkArea();
+    RECT rc;
+    GetWindowRect(m_hWnd, &rc);
+    int w = rc.right - rc.left;
+    int h = rc.bottom - rc.top;
+
+    // 计算鼠标到四边的距离
+    int distTop = ptCursor.y - work.top;
+    int distBottom = work.bottom - ptCursor.y;
+    int distLeft = ptCursor.x - work.left;
+    int distRight = work.right - ptCursor.x;
+
+    int edge = 0; // 默认上边
+    int minDist = distTop;
+    if (distRight < minDist) { minDist = distRight; edge = 1; }
+    if (distBottom < minDist) { minDist = distBottom; edge = 2; }
+    if (distLeft < minDist) { minDist = distLeft; edge = 3; }
+
+    int offset;
+    if (edge == 0 || edge == 2) {
+        offset = rc.left;
+        if (offset < work.left) offset = work.left;
+        if (offset + w > work.right) offset = work.right - w;
+    } else {
+        offset = rc.top;
+        if (offset < work.top) offset = work.top;
+        if (offset + h > work.bottom) offset = work.bottom - h;
+    }
+
+    int targetX, targetY;
+    switch (edge) {
+        case 0: targetX = offset; targetY = work.top; break;
+        case 1: targetX = work.right - w; targetY = offset; break;
+        case 2: targetX = offset; targetY = work.bottom - h; break;
+        case 3: targetX = work.left; targetY = offset; break;
+    }
+
+    MoveWindowGlide(targetX, targetY, edge, offset);
+}
+
+void PopupWindow::MoveWindowGlide(int targetX, int targetY, int edge, int offset) {
+    if (m_animTimerId) KillTimer(m_hWnd, m_animTimerId);
+    m_animTargetOrg.x = targetX;
+    m_animTargetOrg.y = targetY;
+    m_animEdge = edge;
+    m_animOffset = offset;
+    m_animStepCount = 10;
+    m_animCurrentStep = 0;
+
+    RECT rc;
+    GetWindowRect(m_hWnd, &rc);
+    m_animStartRect = rc;
+
+    m_animTimerId = 200;
+    SetTimer(m_hWnd, m_animTimerId, 15, NULL);
+}
+
+void PopupWindow::OnAnimTimer() {
+    m_animCurrentStep++;
+    if (m_animCurrentStep > m_animStepCount) {
+        KillTimer(m_hWnd, m_animTimerId);
+        m_animTimerId = 0;
+        SetWindowPos(m_hWnd, NULL, m_animTargetOrg.x, m_animTargetOrg.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        m_dockedEdge = m_animEdge;
+        m_edgeOffset = m_animOffset;
+        if (!m_dragLocked) {
+            // 如果拖动开始时是解锁状态，动画结束后锁定
+            m_locked = true;
+            UpdateLockIndicator();
+        }
+        PostMessage(m_hParent, WM_CONFIG_UPDATED, 0, 0);
+        return;
+    }
+    float t = (float)m_animCurrentStep / m_animStepCount;
+    float ease = t * t * (3.0f - 2.0f * t);
+    int curX = m_animStartRect.left + (int)((m_animTargetOrg.x - m_animStartRect.left) * ease);
+    int curY = m_animStartRect.top + (int)((m_animTargetOrg.y - m_animStartRect.top) * ease);
+    SetWindowPos(m_hWnd, NULL, curX, curY, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+}
+
+void PopupWindow::SnapToNearestEdge() {
+    RECT rc;
+    GetWindowRect(m_hWnd, &rc);
+    int w = rc.right - rc.left;
+    int h = rc.bottom - rc.top;
+    RECT work = GetWorkArea();
+    int targetX, targetY;
+    switch (m_dockedEdge) {
+        case 0: targetX = m_edgeOffset; targetY = work.top; break;
+        case 1: targetX = work.right - w; targetY = m_edgeOffset; break;
+        case 2: targetX = m_edgeOffset; targetY = work.bottom - h; break;
+        case 3: targetX = work.left; targetY = m_edgeOffset; break;
+    }
+    SetWindowPos(m_hWnd, NULL, targetX, targetY, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+}
+
 LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     PopupWindow* pThis = nullptr;
     if (msg == WM_NCCREATE) {
@@ -472,38 +708,51 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             pThis->SetHoverButton(hBtn);
             return 0;
         }
-        case WM_NCHITTEST: {
-            POINT pt = { LOWORD(lParam), HIWORD(lParam) };
-            ScreenToClient(hWnd, &pt);
-            double scale = GetDPIScale();
-            if (pt.y < (int)(30 * scale)) {
-                return HTCAPTION;
+        case WM_LBUTTONDOWN: {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            if (!pThis->IsPointInButtonArea(pt)) {
+                pThis->BeginDrag(pt);
+                return 0;
             }
             break;
         }
-        case WM_MOVING: {
-            RECT* pRect = (RECT*)lParam;
-            int height = pRect->bottom - pRect->top;
-            pRect->top = 0;
-            pRect->bottom = height;
-            return TRUE;
-        }
-        case WM_EXITSIZEMOVE: {
-            pThis->UpdateLastX();
+        case WM_MOUSEMOVE: {
+            if (pThis->m_dragging) {
+                POINT ptScreen;
+                GetCursorPos(&ptScreen);
+                pThis->DoDrag(ptScreen);
+                return 0;
+            }
             break;
         }
-        case WM_MOUSELEAVE: {
-            pThis->SetHoverButton(NULL);
-            pThis->AdhereToTop();
+        case WM_LBUTTONUP: {
+            if (pThis->m_dragging) {
+                pThis->EndDrag();
+                return 0;
+            }
             break;
         }
-        case WM_TIMER:
+        case WM_LBUTTONDBLCLK: {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            if (pThis->IsPointInTitleArea(pt) && !pThis->IsPointInButtonArea(pt)) {
+                pThis->m_locked = !pThis->m_locked;
+                pThis->UpdateLockIndicator();
+                return 0;
+            }
+            break;
+        }
+        case WM_TIMER: {
+            if (pThis->m_animTimerId && wParam == pThis->m_animTimerId) {
+                pThis->OnAnimTimer();
+                return 0;
+            }
             if (wParam == 100) {
                 pThis->OnAutoHideTimer();
             } else if (wParam == 101) {
                 pThis->UpdateTimeDisplay();
             }
             break;
+        }
         case WM_ERASEBKGND: {
             HDC hdc = (HDC)wParam;
             RECT rc;
@@ -529,13 +778,13 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
 
                 COLORREF bgColor;
                 if (lpDIS->hwndItem == pThis->m_hExitButton) {
-                    if (bPressed) bgColor = RGB(40, 20, 20);
-                    else if (bHover) bgColor = RGB(60, 30, 30);
-                    else bgColor = RGB(80, 40, 40);
+                    if (bPressed) bgColor = RGB(40,20,20);
+                    else if (bHover) bgColor = RGB(60,30,30);
+                    else bgColor = RGB(80,40,40);
                 } else {
-                    if (bPressed) bgColor = RGB(30, 30, 30);
-                    else if (bHover) bgColor = RGB(40, 40, 40);
-                    else bgColor = RGB(60, 60, 60);
+                    if (bPressed) bgColor = RGB(30,30,30);
+                    else if (bHover) bgColor = RGB(40,40,40);
+                    else bgColor = RGB(60,60,60);
                 }
 
                 RECT rcItem = lpDIS->rcItem;
@@ -546,7 +795,7 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 FillRect(hdc, &rcItem, hBgBrush);
                 DeleteObject(hBgBrush);
 
-                HPEN hBorderPen = CreatePen(PS_SOLID, 1, bHover ? RGB(200, 200, 200) : RGB(80, 80, 80));
+                HPEN hBorderPen = CreatePen(PS_SOLID, 1, bHover ? RGB(200,200,200) : RGB(80,80,80));
                 HPEN hOldPen = (HPEN)SelectObject(hdc, hBorderPen);
                 HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
                 Rectangle(hdc, rcItem.left, rcItem.top, rcItem.right, rcItem.bottom);
@@ -555,7 +804,7 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 DeleteObject(hBorderPen);
 
                 SetBkMode(hdc, TRANSPARENT);
-                SetTextColor(hdc, bHover ? RGB(255, 220, 100) : RGB(220, 220, 220));
+                SetTextColor(hdc, bHover ? RGB(255,220,100) : RGB(220,220,220));
                 HFONT hOldFont = (HFONT)SelectObject(hdc, bHover ? pThis->m_hBoldFont : pThis->m_hNormalFont);
 
                 SIZE textSize;
@@ -595,6 +844,13 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             }
             break;
         }
+        case WM_MOUSELEAVE: {
+            pThis->SetHoverButton(NULL);
+            if (pThis->m_locked) {
+                pThis->ScheduleAutoHide();
+            }
+            break;
+        }
         case WM_DESTROY:
             break;
     }
@@ -604,14 +860,12 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
 void PopupWindow::ReloadConfig(const Config& newCfg) {
     bool sizeChanged = (newCfg.popupWidth != m_config.popupWidth || newCfg.popupHeight != m_config.popupHeight);
     m_config = newCfg;
-
+    m_dockedEdge = newCfg.dockedEdge;
+    m_edgeOffset = newCfg.edgeOffset;
     if (sizeChanged) {
-        // 尺寸变化，需要重建窗口
         Recreate();
         return;
     }
-
-    // 尺寸未变化，只需更新一些动态内容
     if (m_hTimeStatic) {
         if (m_config.timeDisplay.enabled) {
             ShowWindow(m_hTimeStatic, SW_SHOW);
@@ -625,14 +879,10 @@ void PopupWindow::ReloadConfig(const Config& newCfg) {
 
 void PopupWindow::Recreate() {
     if (!m_hWnd) return;
-    // 保存当前位置
     UpdateLastX();
-    // 销毁当前窗口
     DestroyWindow(m_hWnd);
     m_hWnd = NULL;
-    // 重新创建
     Create(m_hParent, m_hInst, m_config);
-    // 恢复位置（如果之前可见则显示）
     if (IsWindowVisible(m_hWnd)) {
         SetWindowPos(m_hWnd, HWND_TOPMOST, m_lastX, 0, m_config.popupWidth, m_config.popupHeight, SWP_NOZORDER);
         ShowWindow(m_hWnd, SW_SHOW);

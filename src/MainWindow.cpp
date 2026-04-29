@@ -6,12 +6,10 @@
 #include "ServerPinger.h"
 #include <thread>
 #include <mutex>
+#include <shellapi.h>
 
 static std::mutex g_pingMutex;
 static bool g_pingInProgress = false;
-
-#define WM_CONFIG_UPDATED (WM_USER + 300)
-#define WM_CLEAR_HISTORY  (WM_USER + 500)
 
 MainWindow::MainWindow() : m_hWnd(NULL), m_popupVisible(false), m_backgroundMonitoring(false), m_hMonitorThread(NULL), m_pSettingsWnd(nullptr) {}
 MainWindow::~MainWindow() { StopBackgroundMonitoring(); delete m_pSettingsWnd; }
@@ -45,12 +43,6 @@ bool MainWindow::Create(HINSTANCE hInst, HICON hIcon) {
 
     if (!m_popup.Create(m_hWnd, hInst, m_config)) return false;
 
-    if (m_popup.GetLastX() == 0) {
-        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-        int defaultX = (screenWidth - m_config.popupWidth) / 2;
-        m_popup.SetLastX(defaultX);
-    }
-
     m_popup.SetCurrentServerInfo();
     StartServerPing();
 
@@ -79,19 +71,46 @@ void MainWindow::RunMessageLoop() {
 void MainWindow::CheckMouseEdge() {
     POINT pt;
     GetCursorPos(&pt);
-    int popupX = m_popup.GetLastX();
-    int popupWidth = m_config.popupWidth;
-    if (pt.y < m_config.edgeThreshold && !m_popupVisible) {
-        if (pt.x >= popupX && pt.x <= popupX + popupWidth) {
-            m_popup.Show();
-            m_popupVisible = true;
-            StartServerPing();
-            SetTimer(m_hWnd, IDT_SERVER_PING, 10000, NULL);
+    int edge = m_popup.GetDockedEdge();
+    int popupW = m_config.popupWidth;
+    int popupH = m_config.popupHeight;
+    int threshold = m_config.edgeThreshold;
+    RECT work;
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &work, 0);
+
+    bool shouldShow = false;
+    switch (edge) {
+        case 0: // top
+            if (pt.y < work.top + threshold && pt.x >= m_popup.GetEdgeOffset() && pt.x <= m_popup.GetEdgeOffset() + popupW)
+                shouldShow = true;
+            break;
+        case 1: // right
+            if (pt.x > work.right - threshold && pt.y >= m_popup.GetEdgeOffset() && pt.y <= m_popup.GetEdgeOffset() + popupH)
+                shouldShow = true;
+            break;
+        case 2: // bottom
+            if (pt.y > work.bottom - threshold && pt.x >= m_popup.GetEdgeOffset() && pt.x <= m_popup.GetEdgeOffset() + popupW)
+                shouldShow = true;
+            break;
+        case 3: // left
+            if (pt.x < work.left + threshold && pt.y >= m_popup.GetEdgeOffset() && pt.y <= m_popup.GetEdgeOffset() + popupH)
+                shouldShow = true;
+            break;
+    }
+
+    if (shouldShow && !m_popupVisible) {
+        m_popup.Show();
+        m_popupVisible = true;
+        StartServerPing();
+        SetTimer(m_hWnd, IDT_SERVER_PING, 10000, NULL);
+    } else if (!shouldShow && m_popupVisible) {
+        RECT rc;
+        GetWindowRect(m_popup.GetHWND(), &rc);
+        if (!PtInRect(&rc, pt)) {
+            m_popup.Hide();
+            m_popupVisible = false;
+            KillTimer(m_hWnd, IDT_SERVER_PING);
         }
-    } else if (pt.y > m_config.popupHeight + 20 && m_popupVisible) {
-        m_popup.Hide();
-        m_popupVisible = false;
-        KillTimer(m_hWnd, IDT_SERVER_PING);
     }
 }
 
@@ -241,26 +260,30 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                     pThis->m_pSettingsWnd->Show();
                 }
                 break;
-            case WM_UPDATE_SERVER_STATUS:
-            {
+            case WM_UPDATE_SERVER_STATUS: {
                 ServerStatus* pStatus = (ServerStatus*)lParam;
                 pThis->m_popup.UpdateServerStatus(*pStatus);
                 delete pStatus;
                 break;
             }
-            case WM_BACKGROUND_PING_RESULT:
-            {
+            case WM_BACKGROUND_PING_RESULT: {
                 int latency = (int)lParam;
                 pThis->AddLatencyRecord(latency);
                 break;
             }
-            case WM_CONFIG_UPDATED:
-                // 重新加载配置（m_config 已被 SettingsWindow 直接修改并保存）
+            case WM_CONFIG_UPDATED: {
+                // 从 PopupWindow 获取最新停靠信息
+                int edge = pThis->m_popup.GetDockedEdge();
+                int offset = pThis->m_popup.GetEdgeOffset();
+                if (edge != pThis->m_config.dockedEdge || offset != pThis->m_config.edgeOffset) {
+                    pThis->m_config.dockedEdge = edge;
+                    pThis->m_config.edgeOffset = offset;
+                    pThis->UpdateConfigAndSave();
+                }
                 pThis->m_popup.ReloadConfig(pThis->m_config);
                 pThis->m_popup.SetCurrentServerInfo();
                 pThis->StartServerPing();
 
-                // 根据新配置重新设置定时器
                 if (pThis->m_config.reminder.enabled) {
                     KillTimer(pThis->m_hWnd, IDT_REMINDER);
                     UINT intervalMs = pThis->m_config.reminder.intervalMinutes * 60 * 1000;
@@ -276,8 +299,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                     pThis->StopBackgroundMonitoring();
                 }
                 break;
-            case WM_CLEAR_HISTORY:
-            {
+            }
+            case WM_CLEAR_HISTORY: {
                 std::lock_guard<std::mutex> lock(pThis->m_historyMutex);
                 pThis->m_latencyHistory.clear();
                 break;
