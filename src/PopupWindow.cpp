@@ -555,6 +555,7 @@ void PopupWindow::DoDrag(POINT ptScreen) {
         bool touchRight = IsTouchingEdge(rc, 1);
 
         if ((touchTop || touchBottom) && (touchLeft || touchRight)) {
+            // 角落：自由移动但限制在工作区内，吸附边稍后在 EndDrag 中按规则选择
             if (newX < work.left) newX = work.left;
             if (newY < work.top) newY = work.top;
             if (newX + w > work.right) newX = work.right - w;
@@ -601,17 +602,40 @@ void PopupWindow::EndDrag() {
     int w = rc.right - rc.left;
     int h = rc.bottom - rc.top;
 
-    int distTop = ptCursor.y - work.top;
-    int distBottom = work.bottom - ptCursor.y;
-    int distLeft = ptCursor.x - work.left;
-    int distRight = work.right - ptCursor.x;
+    // 判断当前是否处于角落（同时贴一条水平边和一条垂直边）
+    bool inCorner = (IsTouchingEdge(rc, 0) || IsTouchingEdge(rc, 2)) &&
+                    (IsTouchingEdge(rc, 3) || IsTouchingEdge(rc, 1));
 
-    int edge = 0;
-    int minDist = distTop;
-    if (distRight < minDist) { minDist = distRight; edge = 1; }
-    if (distBottom < minDist) { minDist = distBottom; edge = 2; }
-    if (distLeft < minDist) { minDist = distLeft; edge = 3; }
+    int edge;
+    if (inCorner) {
+        // 角落时硬编码优先级：上边 > 左右边 > 下边
+        // 左右边之间按鼠标距离选择
+        if (IsTouchingEdge(rc, 0)) {
+            edge = 0;               // 优先上边
+        } else if (IsTouchingEdge(rc, 2)) {
+            edge = 2;               // 下边最后
+        } else {
+            // 只有左右边（理论不会到此，因为 inCorner 要求水平+垂直，但保底处理）
+            int distLeft = ptCursor.x - work.left;
+            int distRight = work.right - ptCursor.x;
+            edge = (distLeft < distRight) ? 3 : 1;
+        }
+        // 如果同时贴左右边？通常不可能同时贴左右，但可忽略
+    } else {
+        // 非角落，按鼠标到各边距离最近选择
+        int distTop = ptCursor.y - work.top;
+        int distBottom = work.bottom - ptCursor.y;
+        int distLeft = ptCursor.x - work.left;
+        int distRight = work.right - ptCursor.x;
 
+        edge = 0;
+        int minDist = distTop;
+        if (distRight < minDist) { minDist = distRight; edge = 1; }
+        if (distBottom < minDist) { minDist = distBottom; edge = 2; }
+        if (distLeft < minDist) { minDist = distLeft; edge = 3; }
+    }
+
+    // 计算偏移
     int offset;
     if (edge == 0 || edge == 2) {
         offset = rc.left;
@@ -631,7 +655,7 @@ void PopupWindow::EndDrag() {
         case 3: targetX = work.left; targetY = offset; break;
     }
 
-    // 立即更新停靠边和偏移，确保动画期间停靠信息正确
+    // 立即更新停靠边和偏移
     m_dockedEdge = edge;
     m_edgeOffset = offset;
 
@@ -734,18 +758,14 @@ LRESULT CALLBACK PopupWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             break;
         }
         case WM_LBUTTONDBLCLK: {
-            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-            if (pThis->IsPointInTitleArea(pt) && !pThis->IsPointInButtonArea(pt)) {
-                bool wasLocked = pThis->m_locked;
-                pThis->m_locked = !pThis->m_locked;
-                pThis->UpdateLockIndicator();
-                if (wasLocked && !pThis->m_locked) {
-                    // 从锁定变为解锁，立即开始拖动，并忽略紧接着的 WM_LBUTTONUP
-                    pThis->BeginDrag(pt, true);
-                }
-                return 0;
-            }
-            break;
+            // 双击不再切换锁定状态，全局拖动功能已取消
+            // 如需恢复，取消下面注释：
+            // POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            // if (pThis->IsPointInTitleArea(pt) && !pThis->IsPointInButtonArea(pt)) {
+            //     pThis->m_locked = !pThis->m_locked;
+            //     pThis->UpdateLockIndicator();
+            // }
+            return 0;
         }
         case WM_TIMER: {
             if (pThis->m_animTimerId && wParam == pThis->m_animTimerId) {
