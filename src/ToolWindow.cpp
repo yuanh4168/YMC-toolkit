@@ -55,42 +55,54 @@ bool ToolWindow::Show(HWND hParent, HINSTANCE hInst) {
 
         int y = 10;
 
-        // ---------- DeepSeek 提示词生成器 ----------
-        easyUI.CreateLabel("lblPrompt", L"DeepSeek 提示词生成器", 38, y, 562, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateLabel("lblDesc", L"项目描述:", 38, y, 281, ROW_H);
-        y += ROW_H + SPACE;
-        
-        // 使用 easyUI 的 TextBox（点击后弹出独立编辑框，不会闪烁）
-        easyUI.CreateTextBox("txtPromptDesc", 38, y, 1425, TEXT_AREA_H);
-        // 设置初始文本（如果需要）
-        easyUI.Text("txtPromptDesc", g_descText);
-        y += TEXT_AREA_H + SPACE;
+       // ---------- DeepSeek 提示词生成器 ----------
+easyUI.CreateLabel("lblPrompt", L"DeepSeek 提示词生成器", 38, y, 562, ROW_H);
+y += ROW_H + SPACE;
+easyUI.CreateLabel("lblDesc", L"项目描述:", 38, y, 281, ROW_H);
+y += ROW_H + SPACE;
 
-        easyUI.CreateLabel("lblResult", L"生成的提示词:", 38, y, 281, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateTextBox("txtPromptResult", 38, y, 1425, TEXT_AREA_H);
-        y += TEXT_AREA_H + SPACE;
-        easyUI.CreateButton("btnGenerate", L"生成提示词", 38, y, 262, ROW_H);
-        easyUI.CreateButton("btnExport", L"导出为 Markdown", 338, y, 300, ROW_H);
-        y += ROW_H + SPACE * 2;
+// 项目描述文本框，启用多行
+easyUI.CreateTextBox("txtPromptDesc", 38, y, 1425, TEXT_AREA_H);
+auto pDesc = dynamic_cast<eui::Controls::TextBox*>(eui::Controls::FindControl("txtPromptDesc"));
+if (pDesc) pDesc->SetMultiline(true);
+easyUI.Text("txtPromptDesc", g_descText);
+y += TEXT_AREA_H + SPACE;
 
-        // ---------- 项目结构生成器 ----------
-        easyUI.CreateLabel("lblStruct", L"项目结构生成器", 38, y, 562, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateLabel("lblTree", L"粘贴目录树 (支持 tree /f 风格):", 38, y, 562, ROW_H);
-        y += ROW_H + SPACE;
+easyUI.CreateLabel("lblResult", L"生成的提示词:", 38, y, 281, ROW_H);
+y += ROW_H + SPACE;
 
-        easyUI.CreateTextBox("txtStructure", 38, y, 1425, 120);
-        easyUI.Text("txtStructure", g_treeText);
-        y += 120 + SPACE;
+// 生成的提示词文本框，启用多行（通常较大且只读，但仍可设为多行以便查看和复制）
+easyUI.CreateTextBox("txtPromptResult", 38, y, 1425, TEXT_AREA_H);
+auto pResult = dynamic_cast<eui::Controls::TextBox*>(eui::Controls::FindControl("txtPromptResult"));
+if (pResult) pResult->SetMultiline(true);
+y += TEXT_AREA_H + SPACE;
+easyUI.CreateButton("btnGenerate", L"生成提示词", 38, y, 262, ROW_H);
+easyUI.CreateButton("btnExport", L"导出为 Markdown", 338, y, 300, ROW_H);
+y += ROW_H + SPACE * 2;
 
-        easyUI.CreateButton("btnSelPath", L"选择生成目录", 38, y, 300, ROW_H);
-        easyUI.CreateButton("btnGenStruct", L"生成结构", 375, y, 281, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateLabel("lblLog", L"日志:", 38, y, 112, ROW_H);
-        y += ROW_H + SPACE;
-        easyUI.CreateTextBox("txtLog", 38, y, 1425, 100);
+// ---------- 项目结构生成器 ----------
+easyUI.CreateLabel("lblStruct", L"项目结构生成器", 38, y, 562, ROW_H);
+y += ROW_H + SPACE;
+easyUI.CreateLabel("lblTree", L"粘贴目录树 (支持 tree /f 风格):", 38, y, 562, ROW_H);
+y += ROW_H + SPACE;
+
+// 目录树粘贴框，启用多行
+easyUI.CreateTextBox("txtStructure", 38, y, 1425, 120);
+auto pStruct = dynamic_cast<eui::Controls::TextBox*>(eui::Controls::FindControl("txtStructure"));
+if (pStruct) pStruct->SetMultiline(true);
+easyUI.Text("txtStructure", g_treeText);
+y += 120 + SPACE;
+
+easyUI.CreateButton("btnSelPath", L"选择生成目录", 38, y, 300, ROW_H);
+easyUI.CreateButton("btnGenStruct", L"生成结构", 375, y, 281, ROW_H);
+y += ROW_H + SPACE;
+easyUI.CreateLabel("lblLog", L"日志:", 38, y, 112, ROW_H);
+y += ROW_H + SPACE;
+
+// 日志框，启用多行（仅用于展示，故设为多行便于滚动查看）
+easyUI.CreateTextBox("txtLog", 38, y, 1425, 100);
+auto pLog = dynamic_cast<eui::Controls::TextBox*>(eui::Controls::FindControl("txtLog"));
+if (pLog) pLog->SetMultiline(true);
 
         // 事件绑定
         easyUI.OnClick("btnGenerate", [this]() {

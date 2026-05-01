@@ -1,6 +1,6 @@
 /*
    easy_UI.hpp - 轻量级 Windows UI 渲染库 (C++11 / Win32 + GDI+)
-   版本: 4.3.1 (修正宽字符编译)
+   版本: 4.3.2 (增加多行文本框支持)
    用法: #include "easy_UI.hpp" 并链接 gdiplus.lib
 */
 
@@ -133,6 +133,7 @@ namespace detail {
         Control* focused = nullptr;
         Control* pressed = nullptr;
         bool antiAlias = true;
+        bool editIsMultiline = false;           // 标记当前编辑框是否为多行模式
 
         ~GlobalState() { if (gdiplusInit) Gdiplus::GdiplusShutdown(gdiplusToken); }
     };
@@ -221,9 +222,63 @@ namespace Core {
                       &fmt, &brush);
     }
 
+    // 前向声明
     inline LRESULT CALLBACK InvisibleEditProc(HWND, UINT, WPARAM, LPARAM);
-    inline void CreateInvisibleEdit();
-    inline void ShowInvisibleEdit(const RECT& rc, const std::wstring& initialText);
+    inline void CreateInvisibleEdit(bool multiline = false);
+    inline void ShowInvisibleEdit(const RECT& rc, const std::wstring& initialText, bool multiline = false);
+} // namespace Core
+
+// 实现 Core 中需要依赖全局状态的多行编辑框相关函数
+namespace Core {
+    inline LRESULT CALLBACK InvisibleEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+        auto& gs = detail::GS();
+        if (msg == WM_KILLFOCUS) {
+            // 无论单行还是多行，失去焦点都将文本提交
+            wchar_t buf[1024];
+            GetWindowTextW(hwnd, buf, 1024);
+            if (gs.onEditFinished) gs.onEditFinished(buf);
+            ShowWindow(hwnd, SW_HIDE);
+            return 0;
+        }
+        // 多行模式下不允许回车提交，让系统处理换行
+        if (msg == WM_CHAR && wParam == VK_RETURN && !gs.editIsMultiline) {
+            // 单行模式：回车提交文本
+            wchar_t buf[1024];
+            GetWindowTextW(hwnd, buf, 1024);
+            if (gs.onEditFinished) gs.onEditFinished(buf);
+            ShowWindow(hwnd, SW_HIDE);
+            return 0;
+        }
+        return CallWindowProc(gs.oldEditProc, hwnd, msg, wParam, lParam);
+    }
+
+    inline void CreateInvisibleEdit(bool multiline) {
+        auto& gs = detail::GS();
+        if (gs.invisibleEdit) return;
+
+        DWORD style = WS_CHILD | WS_BORDER;
+        if (multiline) {
+            style |= ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL | WS_VSCROLL;
+        } else {
+            style |= ES_AUTOHSCROLL;
+        }
+
+        gs.invisibleEdit = CreateWindowW(L"EDIT", L"", style, 0, 0, 100, 20,
+                                         gs.hwnd, nullptr, GetModuleHandle(nullptr), nullptr);
+        gs.oldEditProc = (WNDPROC)SetWindowLongPtr(gs.invisibleEdit, GWLP_WNDPROC, (LONG_PTR)InvisibleEditProc);
+        ShowWindow(gs.invisibleEdit, SW_HIDE);
+    }
+
+    inline void ShowInvisibleEdit(const RECT& rc, const std::wstring& initText, bool multiline) {
+        auto& gs = detail::GS();
+        if (!gs.invisibleEdit) CreateInvisibleEdit(multiline);
+        SetWindowTextW(gs.invisibleEdit, initText.c_str());
+        SetWindowPos(gs.invisibleEdit, HWND_TOP, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+                     SWP_SHOWWINDOW);
+        SetFocus(gs.invisibleEdit);
+        SendMessage(gs.invisibleEdit, EM_SETSEL, 0, -1);
+        gs.editIsMultiline = multiline;
+    }
 } // namespace Core
 
 // =============================================================================
@@ -313,10 +368,16 @@ namespace Controls {
         }
     };
 
+    // 多行支持的文本框
     class TextBox : public Control {
     public:
         std::wstring text;
+        bool multiline = false;    // 是否使用多行编辑模式
+
         TextBox(const std::string& name) : Control(name) {}
+
+        void SetMultiline(bool ml) { multiline = ml; }
+
         void Draw(Gdiplus::Graphics* g) override {
             RECT r = GetRect();
             auto& gs = detail::GS();
@@ -324,10 +385,13 @@ namespace Controls {
             DrawRect(g, r, (gs.focused == this) ? gs.theme.accent : gs.theme.border);
             RECT tr = r; tr.left += 3; tr.right -= 3;
             float sx, sy; GetScale(sx, sy);
-            DrawString(g, text.empty() ? L" " : text, tr, GetFont("default"), gs.theme.text, sx, sy, Gdiplus::StringAlignmentNear);
+            // 显示多行文本，先自行换行
+            std::wstring displayText = text.empty() ? L" " : text;
+            DrawString(g, displayText, tr, GetFont("default"), gs.theme.text, sx, sy, Gdiplus::StringAlignmentNear);
         }
+
         void OnLButtonDown(int,int) override {
-            Core::ShowInvisibleEdit(GetRect(), text);
+            Core::ShowInvisibleEdit(GetRect(), text, multiline);
             detail::GS().onEditFinished = [this](const std::wstring& newText) {
                 text = newText;
                 if (onTextChanged) onTextChanged(text);
@@ -500,37 +564,6 @@ inline void Control::GetScale(float& sx, float& sy) const {
     auto& gs = detail::GS();
     sx = gs.autoScale ? (float)gs.clientRect.right / gs.baseWidth : 1.0f;
     sy = gs.autoScale ? (float)gs.clientRect.bottom / gs.baseHeight : 1.0f;
-}
-
-// 隐形输入框实现
-namespace Core {
-    inline LRESULT CALLBACK InvisibleEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-        auto& gs = detail::GS();
-        if (msg == WM_KILLFOCUS || (msg == WM_CHAR && wParam == VK_RETURN)) {
-            wchar_t buf[1024];
-            GetWindowTextW(hwnd, buf, 1024);
-            if (gs.onEditFinished) gs.onEditFinished(buf);
-            ShowWindow(hwnd, SW_HIDE);
-            return 0;
-        }
-        return CallWindowProc(gs.oldEditProc, hwnd, msg, wParam, lParam);
-    }
-    inline void CreateInvisibleEdit() {
-        auto& gs = detail::GS();
-        if (gs.invisibleEdit) return;
-        gs.invisibleEdit = CreateWindowW(L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL | WS_BORDER,
-                                         0,0,100,20, gs.hwnd, nullptr, GetModuleHandle(nullptr), nullptr);
-        gs.oldEditProc = (WNDPROC)SetWindowLongPtr(gs.invisibleEdit, GWLP_WNDPROC, (LONG_PTR)InvisibleEditProc);
-        ShowWindow(gs.invisibleEdit, SW_HIDE);
-    }
-    inline void ShowInvisibleEdit(const RECT& rc, const std::wstring& initText) {
-        auto& gs = detail::GS();
-        if (!gs.invisibleEdit) CreateInvisibleEdit();
-        SetWindowTextW(gs.invisibleEdit, initText.c_str());
-        SetWindowPos(gs.invisibleEdit, HWND_TOP, rc.left, rc.top, rc.right-rc.left, rc.bottom-rc.top, SWP_SHOWWINDOW);
-        SetFocus(gs.invisibleEdit);
-        SendMessage(gs.invisibleEdit, EM_SETSEL, 0, -1);
-    }
 }
 
 // Application 结构体
